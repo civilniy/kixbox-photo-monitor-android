@@ -352,22 +352,12 @@ private fun CreditsCard(data: MonitorSnapshot) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("OpenAI API", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
-                val enough = data.creditsEnough
-                val color = when (enough) { true -> Good; false -> Danger; null -> Muted }
-                Surface(color = color.copy(alpha = .12f), shape = RoundedCornerShape(14.dp)) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalAlignment = Alignment.End
-                    ) {
-                        Text("Свободный баланс", color = color, fontSize = 10.sp)
-                        Text(
-                            if (data.creditsConfigured) usd(data.creditsBalanceUsd) else "Не подключено",
-                            color = color,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
-                        )
-                    }
-                }
+                Text(
+                    if (data.creditsConfigured) usd(data.creditsBalanceUsd) else "—",
+                    color = Ink,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 22.sp
+                )
             }
             if (!data.creditsConfigured) {
                 Text("Добавьте административный ключ OpenAI и сумму пополнений на сервере — появится расчётный остаток.", color = Muted, fontSize = 13.sp)
@@ -378,7 +368,7 @@ private fun CreditsCard(data: MonitorSnapshot) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FinanceMetric("Общий расход", usd(data.costsTotalUsd), Modifier.weight(1f))
-                    FinanceMetric("Итоговый баланс", usd(data.creditsBalanceUsd), Modifier.weight(1f))
+                    FinanceMetric("Стоимость 1 фото", usdPerPhoto(data.costPerReadyUsd), Modifier.weight(1f))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FinanceMetric("Расход за 7 дней", usd(data.costs7dUsd), Modifier.weight(1f))
@@ -521,6 +511,7 @@ private fun EndpointDialog(current: String, currentToken: String, onDismiss: () 
 
 private fun intFormat(value: Int): String = NumberFormat.getIntegerInstance(Locale("ru", "RU")).format(value)
 private fun usd(value: Double?): String = value?.let { "$" + String.format(Locale.US, "%.2f", it) } ?: "—"
+private fun usdPerPhoto(value: Double?): String = value?.let { "$" + String.format(Locale.US, "%.3f", it) } ?: "—"
 private fun formatTimestamp(value: String): String = try {
     OffsetDateTime.parse(value).format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
 } catch (_: Exception) { value }
