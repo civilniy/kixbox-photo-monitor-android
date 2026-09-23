@@ -212,6 +212,7 @@ private fun parseSnapshot(raw: String): MonitorSnapshot {
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MonitorApp(vm: MonitorViewModel = viewModel()) {
     var showSettings by remember { mutableStateOf(false) }
