@@ -76,22 +76,22 @@ async def _fetch_photo_snapshot() -> dict[str, Any]:
     )
 
 
+async def _fetch_costs() -> tuple[dict[str, float], dict[str, float]]:
+    project_id = os.environ.get("OPENAI_PROJECT_ID")
+    project_costs = await fetch_openai_costs(project_id=project_id)
+    organization_costs = await fetch_openai_costs() if project_id else project_costs
+    return project_costs, organization_costs
+
+
 async def refresh_snapshot() -> None:
     global snapshot, refresh_error
-    project_id = os.environ.get("OPENAI_PROJECT_ID")
     admin_configured = bool(os.environ.get("OPENAI_ADMIN_KEY"))
     photo_task = asyncio.create_task(_fetch_photo_snapshot())
-    project_costs_task = asyncio.create_task(fetch_openai_costs(project_id=project_id))
-    organization_costs_task = (
-        asyncio.create_task(fetch_openai_costs())
-        if admin_configured and project_id
-        else project_costs_task
-    )
+    costs_task = asyncio.create_task(_fetch_costs())
 
-    photo_result, project_costs_result, organization_costs_result = await asyncio.gather(
+    photo_result, costs_result = await asyncio.gather(
         photo_task,
-        project_costs_task,
-        organization_costs_task,
+        costs_task,
         return_exceptions=True,
     )
 
@@ -102,14 +102,10 @@ async def refresh_snapshot() -> None:
     else:
         next_snapshot = photo_result
 
-    if isinstance(project_costs_result, BaseException):
-        errors.append(_error_text("OpenAI project costs", project_costs_result))
+    if isinstance(costs_result, BaseException):
+        errors.append(_error_text("OpenAI costs", costs_result))
     elif admin_configured:
-        if isinstance(organization_costs_result, BaseException):
-            errors.append(_error_text("OpenAI organization costs", organization_costs_result))
-            balance_costs = project_costs_result
-        else:
-            balance_costs = organization_costs_result
+        project_costs_result, organization_costs_result = costs_result
         next_snapshot["credits"] = build_credits(
             costs_by_day=project_costs_result,
             daily=next_snapshot.get("daily", []),
@@ -120,7 +116,7 @@ async def refresh_snapshot() -> None:
             opening_balance_usd=_opening_balance(),
             actual_balance_usd=_actual_balance(),
             configured=True,
-            balance_costs_by_day=balance_costs,
+            balance_costs_by_day=organization_costs_result,
         )
 
     snapshot = next_snapshot
