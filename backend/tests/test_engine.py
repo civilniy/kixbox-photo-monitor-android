@@ -60,8 +60,8 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(result["balance_usd"], 97.45)
         self.assertEqual(result["opening_balance_usd"], 7.45)
         self.assertEqual(result["topups_usd"], 100.0)
-        self.assertEqual(result["cost_per_ready_usd"], 0.5)
-        self.assertEqual(result["projected_cost_remaining_usd"], 25.0)
+        self.assertEqual(result["cost_per_ready_usd"], 0.2)
+        self.assertEqual(result["projected_cost_remaining_usd"], 10.0)
 
     def test_balance_can_use_organization_costs(self) -> None:
         result = build_credits(
@@ -83,8 +83,8 @@ class EngineTests(unittest.TestCase):
         result = build_credits(
             costs_by_day={"2026-09-23": 808.46},
             daily=[],
-            processed_source=0,
-            ready_total=0,
+            processed_source=15113,
+            ready_total=8080,
             remaining_source=0,
             credit_topups_usd=992.0,
             opening_balance_usd=7.45,
@@ -94,6 +94,7 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(result["costs_total_usd"], 928.10)
         self.assertEqual(result["project_costs_total_usd"], 808.46)
         self.assertEqual(result["balance_source"], "cabinet")
+        self.assertEqual(result["cost_per_ready_usd"], 0.1149)
 
 
 if __name__ == "__main__":
