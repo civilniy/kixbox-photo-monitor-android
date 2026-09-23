@@ -353,10 +353,20 @@ private fun CreditsCard(data: MonitorSnapshot) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("OpenAI API", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
                 val enough = data.creditsEnough
-                val label = when (enough) { true -> "Хватит"; false -> "Нужно пополнить"; null -> "Не подключено" }
                 val color = when (enough) { true -> Good; false -> Danger; null -> Muted }
-                Surface(color = color.copy(alpha = .12f), shape = RoundedCornerShape(50)) {
-                    Text(label, color = color, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                Surface(color = color.copy(alpha = .12f), shape = RoundedCornerShape(14.dp)) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalAlignment = Alignment.End
+                    ) {
+                        Text("Свободный баланс", color = color, fontSize = 10.sp)
+                        Text(
+                            if (data.creditsConfigured) usd(data.creditsBalanceUsd) else "Не подключено",
+                            color = color,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                    }
                 }
             }
             if (!data.creditsConfigured) {
