@@ -85,6 +85,8 @@ data class MonitorSnapshot(
     val daily: List<DailyPoint>,
     val batches: List<BatchRow>,
     val creditsConfigured: Boolean,
+    val openingBalanceUsd: Double?,
+    val topupsUsd: Double?,
     val creditsBalanceUsd: Double?,
     val costsTodayUsd: Double?,
     val costs7dUsd: Double?,
@@ -202,6 +204,8 @@ private fun parseSnapshot(raw: String): MonitorSnapshot {
         },
         batches = root.objects("batches").map(::parseBatch),
         creditsConfigured = credits.optBoolean("configured", false),
+        openingBalanceUsd = credits.optNullableDouble("opening_balance_usd"),
+        topupsUsd = credits.optNullableDouble("topups_usd"),
         creditsBalanceUsd = credits.optNullableDouble("balance_usd"),
         costsTodayUsd = credits.optNullableDouble("costs_today_usd"),
         costs7dUsd = credits.optNullableDouble("costs_7d_usd"),
@@ -359,11 +363,15 @@ private fun CreditsCard(data: MonitorSnapshot) {
                 Text("Добавьте административный ключ OpenAI и сумму пополнений на сервере — появится расчётный остаток.", color = Muted, fontSize = 13.sp)
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FinanceMetric("Остаток", usd(data.creditsBalanceUsd), Modifier.weight(1f))
-                    FinanceMetric("Расход за 7 дней", usd(data.costs7dUsd), Modifier.weight(1f))
+                    FinanceMetric("На начало проекта", usd(data.openingBalanceUsd), Modifier.weight(1f))
+                    FinanceMetric("Пополнения", usd(data.topupsUsd), Modifier.weight(1f))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FinanceMetric("На одно готовое фото", usd(data.costPerReadyUsd), Modifier.weight(1f))
+                    FinanceMetric("Общий расход", usd(data.costsTotalUsd), Modifier.weight(1f))
+                    FinanceMetric("Итоговый баланс", usd(data.creditsBalanceUsd), Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FinanceMetric("Расход за 7 дней", usd(data.costs7dUsd), Modifier.weight(1f))
                     FinanceMetric("До завершения", usd(data.projectedCostRemainingUsd), Modifier.weight(1f))
                 }
             }
