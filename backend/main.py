@@ -186,8 +186,9 @@ def monitor() -> dict[str, Any]:
 
 @app.post("/api/v1/refresh", dependencies=[Depends(authorize)])
 async def refresh() -> dict[str, Any]:
-    global manual_refresh_task
+    global manual_refresh_task, refreshing
     if not refreshing and (manual_refresh_task is None or manual_refresh_task.done()):
+        refreshing = True
         manual_refresh_task = asyncio.create_task(refresh_snapshot())
     return {
         "ok": True,
