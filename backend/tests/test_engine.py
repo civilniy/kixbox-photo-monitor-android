@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import unittest
 
-from engine import build_snapshot, linked_source_count, summarize_run
+from engine import build_credits, build_snapshot, linked_source_count, summarize_run
 
 
 class EngineTests(unittest.TestCase):
@@ -45,6 +45,38 @@ class EngineTests(unittest.TestCase):
         result = build_snapshot(runs, 1400, now=datetime(2026, 9, 23, tzinfo=timezone.utc))
         self.assertEqual(result["average_daily_source_7d"], 100)
         self.assertEqual(result["estimated_days_remaining"], 7)
+
+    def test_openai_credits_can_be_merged_into_drive_snapshot(self) -> None:
+        result = build_credits(
+            costs_by_day={"2026-09-23": 10.0},
+            daily=[{"date": "2026-09-23", "ready": 20}],
+            processed_source=100,
+            ready_total=50,
+            remaining_source=100,
+            credit_topups_usd=100.0,
+            opening_balance_usd=7.45,
+            now=datetime(2026, 9, 23, tzinfo=timezone.utc),
+        )
+        self.assertEqual(result["balance_usd"], 97.45)
+        self.assertEqual(result["opening_balance_usd"], 7.45)
+        self.assertEqual(result["topups_usd"], 100.0)
+        self.assertEqual(result["cost_per_ready_usd"], 0.5)
+        self.assertEqual(result["projected_cost_remaining_usd"], 25.0)
+
+    def test_balance_can_use_organization_costs(self) -> None:
+        result = build_credits(
+            costs_by_day={"2026-09-23": 9.0},
+            balance_costs_by_day={"2026-09-23": 10.0},
+            daily=[],
+            processed_source=0,
+            ready_total=0,
+            remaining_source=0,
+            credit_topups_usd=100.0,
+            opening_balance_usd=0.0,
+            now=datetime(2026, 9, 23, tzinfo=timezone.utc),
+        )
+        self.assertEqual(result["costs_total_usd"], 9.0)
+        self.assertEqual(result["balance_usd"], 90.0)
 
 
 if __name__ == "__main__":
