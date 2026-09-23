@@ -61,7 +61,10 @@ async def _fetch_photo_snapshot() -> dict[str, Any]:
         # It runs in the background, so this does not delay opening the API port.
         timeout = httpx.Timeout(330.0, connect=20.0)
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(feed_url)
+            response = await client.get(
+                feed_url,
+                params={"_refresh": int(datetime.now(timezone.utc).timestamp())},
+            )
             response.raise_for_status()
             feed_snapshot = response.json()
         if feed_snapshot.get("data_status") != "live":
@@ -108,6 +111,8 @@ async def refresh_snapshot() -> None:
 
         if isinstance(costs_result, BaseException):
             errors.append(_error_text("OpenAI costs", costs_result))
+            if snapshot.get("credits"):
+                next_snapshot["credits"] = snapshot["credits"]
         elif admin_configured:
             project_costs_result, organization_costs_result = costs_result
             next_snapshot["credits"] = build_credits(
