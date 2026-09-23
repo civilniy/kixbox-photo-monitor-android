@@ -75,8 +75,25 @@ class EngineTests(unittest.TestCase):
             opening_balance_usd=0.0,
             now=datetime(2026, 9, 23, tzinfo=timezone.utc),
         )
-        self.assertEqual(result["costs_total_usd"], 9.0)
+        self.assertEqual(result["costs_total_usd"], 10.0)
+        self.assertEqual(result["project_costs_total_usd"], 9.0)
         self.assertEqual(result["balance_usd"], 90.0)
+
+    def test_actual_cabinet_balance_wins_over_delayed_costs(self) -> None:
+        result = build_credits(
+            costs_by_day={"2026-09-23": 808.46},
+            daily=[],
+            processed_source=0,
+            ready_total=0,
+            remaining_source=0,
+            credit_topups_usd=992.0,
+            opening_balance_usd=7.45,
+            actual_balance_usd=71.35,
+        )
+        self.assertEqual(result["balance_usd"], 71.35)
+        self.assertEqual(result["costs_total_usd"], 928.10)
+        self.assertEqual(result["project_costs_total_usd"], 808.46)
+        self.assertEqual(result["balance_source"], "cabinet")
 
 
 if __name__ == "__main__":
