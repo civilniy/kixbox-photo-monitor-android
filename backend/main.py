@@ -61,10 +61,9 @@ async def _fetch_photo_snapshot() -> dict[str, Any]:
         # It runs in the background, so this does not delay opening the API port.
         timeout = httpx.Timeout(330.0, connect=20.0)
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.get(
-                feed_url,
-                params={"_refresh": int(datetime.now(timezone.utc).timestamp())},
-            )
+            separator = "&" if "?" in feed_url else "?"
+            refresh_url = f"{feed_url}{separator}_refresh={int(datetime.now(timezone.utc).timestamp())}"
+            response = await client.get(refresh_url)
             response.raise_for_status()
             feed_snapshot = response.json()
         if feed_snapshot.get("data_status") != "live":
