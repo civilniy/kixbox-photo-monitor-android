@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -29,17 +30,28 @@ def _credit_topups() -> float | None:
 async def refresh_snapshot() -> None:
     global snapshot, refresh_error
     try:
-        source = DriveSource()
-        runs = await asyncio.to_thread(source.load_runs)
-        costs = await fetch_openai_costs()
-        snapshot = build_snapshot(
-            runs=runs,
-            target_total=int(os.environ.get("TARGET_SOURCE_TOTAL", "23000")),
-            costs_by_day=costs,
-            credit_topups_usd=_credit_topups(),
-            now=datetime.now(timezone.utc),
-            data_status="live",
-        )
+        feed_url = os.environ.get("GOOGLE_APPS_SCRIPT_FEED_URL")
+        if feed_url:
+            timeout = httpx.Timeout(210.0, connect=20.0)
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                response = await client.get(feed_url)
+                response.raise_for_status()
+                feed_snapshot = response.json()
+            if feed_snapshot.get("data_status") != "live":
+                raise RuntimeError(feed_snapshot.get("error") or "Google feed is not live")
+            snapshot = feed_snapshot
+        else:
+            source = DriveSource()
+            runs = await asyncio.to_thread(source.load_runs)
+            costs = await fetch_openai_costs()
+            snapshot = build_snapshot(
+                runs=runs,
+                target_total=int(os.environ.get("TARGET_SOURCE_TOTAL", "23000")),
+                costs_by_day=costs,
+                credit_topups_usd=_credit_topups(),
+                now=datetime.now(timezone.utc),
+                data_status="live",
+            )
         refresh_error = None
     except Exception as exc:
         refresh_error = str(exc)
