@@ -1,0 +1,44 @@
+{
+  "generated_at": "2026-09-23T12:00:00+00:00",
+  "data_status": "sample",
+  "target_total": 23000,
+  "processed_source": 15264,
+  "remaining_source": 7736,
+  "progress_percent": 66.4,
+  "ready_total": 7656,
+  "manual_total": 21,
+  "failed_total": 6,
+  "average_daily_source_7d": 1628.0,
+  "average_daily_ready_7d": 797.0,
+  "estimated_days_remaining": 4.8,
+  "estimated_completion_at": "2026-09-28T08:00:00+03:00",
+  "current_batch": {
+    "folder": "2026_09_16",
+    "source_total": 1129,
+    "processed": 842,
+    "ready": 439,
+    "manual": 1,
+    "failed": 0,
+    "state": "processing"
+  },
+  "daily": [
+    {"date": "2026-09-17", "processed": 692, "ready": 314, "cost_usd": 0},
+    {"date": "2026-09-18", "processed": 1662, "ready": 849, "cost_usd": 0},
+    {"date": "2026-09-19", "processed": 2003, "ready": 995, "cost_usd": 0},
+    {"date": "2026-09-20", "processed": 1217, "ready": 558, "cost_usd": 0},
+    {"date": "2026-09-21", "processed": 966, "ready": 426, "cost_usd": 0},
+    {"date": "2026-09-22", "processed": 3227, "ready": 1637, "cost_usd": 0},
+    {"date": "2026-09-23", "processed": 2196, "ready": 1104, "cost_usd": 0}
+  ],
+  "batches": [],
+  "credits": {
+    "configured": false,
+    "balance_usd": null,
+    "costs_today_usd": null,
+    "costs_7d_usd": null,
+    "costs_total_usd": null,
+    "cost_per_ready_usd": null,
+    "projected_cost_remaining_usd": null,
+    "enough_to_finish": null
+  }
+}

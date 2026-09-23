@@ -1,0 +1,50 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m unittest discover -s tests -v
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Preserve internal test signature
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: kixbox-monitor-debug-keystore-v1
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+      - name: Build APK
+        run: gradle :app:assembleDebug --stacktrace
+      - name: Prepare APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk KIXBOX-Monitor.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KIXBOX-Monitor-APK
+          path: KIXBOX-Monitor.apk
+          retention-days: 30

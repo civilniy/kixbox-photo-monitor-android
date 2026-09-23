@@ -1,0 +1,12 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+/build/
+/app/build/
+/.kotlin/
+.env
+**/__pycache__/
+*.pyc
+backend/.venv/
+backend/data/
