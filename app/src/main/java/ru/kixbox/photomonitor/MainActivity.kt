@@ -40,6 +40,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.text.NumberFormat
 import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -133,15 +134,26 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
             state = ScreenState.Error("Укажите адрес сервера мониторинга")
             return
         }
-        if (!silent) state = ScreenState.Loading
+        val current = (state as? ScreenState.Ready)?.snapshot
+        if (!silent) {
+            state = current?.let { ScreenState.Ready(it.copy(dataStatus = "updating")) }
+                ?: ScreenState.Loading
+        }
         viewModelScope.launch {
             state = try {
                 ScreenState.Ready(fetchSnapshot("$endpoint/api/v1/monitor"))
             } catch (e: Exception) {
-                ScreenState.Error(e.message ?: "Не удалось получить данные")
+                cachedSnapshot()?.let {
+                    ScreenState.Ready(it.copy(dataStatus = "updating"))
+                } ?: ScreenState.Error(e.message ?: "Не удалось получить данные")
             }
         }
     }
+
+    private fun cachedSnapshot(): MonitorSnapshot? =
+        prefs.getString("last_live_snapshot", null)?.let { raw ->
+            runCatching { parseSnapshot(raw) }.getOrNull()
+        }
 
     private suspend fun fetchSnapshot(url: String): MonitorSnapshot = withContext(Dispatchers.IO) {
         val connection = URL(url).openConnection() as HttpURLConnection
@@ -154,7 +166,15 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
             if (connection.responseCode !in 200..299) {
                 error("Сервер вернул HTTP ${connection.responseCode}")
             }
-            parseSnapshot(connection.inputStream.bufferedReader().use { it.readText() })
+            val raw = connection.inputStream.bufferedReader().use { it.readText() }
+            val received = parseSnapshot(raw)
+            if (received.dataStatus == "live") {
+                prefs.edit().putString("last_live_snapshot", raw).apply()
+                received
+            } else {
+                cachedSnapshot()?.copy(dataStatus = "updating")
+                    ?: received.copy(dataStatus = "updating")
+            }
         } finally {
             connection.disconnect()
         }
@@ -259,13 +279,7 @@ private fun Dashboard(data: MonitorSnapshot, modifier: Modifier = Modifier) {
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        if (data.dataStatus != "live") {
-            item {
-                Surface(color = Warning.copy(alpha = .12f), shape = RoundedCornerShape(14.dp)) {
-                    Text("Показаны демонстрационные данные — подключите Google Drive на сервере.", color = Warning, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
-                }
-            }
-        }
+        item { DataFreshnessStatus(data) }
         item { ProgressHero(data) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -294,6 +308,32 @@ private fun Dashboard(data: MonitorSnapshot, modifier: Modifier = Modifier) {
                 modifier = Modifier.padding(bottom = 18.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun DataFreshnessStatus(data: MonitorSnapshot) {
+    val updating = data.dataStatus != "live"
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 1.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        if (updating) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(12.dp),
+                strokeWidth = 1.5.dp,
+                color = Warning
+            )
+        }
+        Text(
+            buildString {
+                append("Данные на ${formatTimestamp(data.generatedAt)}")
+                if (updating) append(" · Подождите, идёт обновление")
+            },
+            color = if (updating) Warning else Muted,
+            fontSize = 11.sp
+        )
     }
 }
 
@@ -513,7 +553,9 @@ private fun intFormat(value: Int): String = NumberFormat.getIntegerInstance(Loca
 private fun usd(value: Double?): String = value?.let { "$" + String.format(Locale.US, "%.2f", it) } ?: "—"
 private fun usdPerPhoto(value: Double?): String = value?.let { "$" + String.format(Locale.US, "%.3f", it) } ?: "—"
 private fun formatTimestamp(value: String): String = try {
-    OffsetDateTime.parse(value).format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+    OffsetDateTime.parse(value)
+        .atZoneSameInstant(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
 } catch (_: Exception) { value }
 
 private val AppBackground = Color(0xFFF4F6F8)
