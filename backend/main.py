@@ -32,6 +32,11 @@ def _opening_balance() -> float:
     return float(value) if value not in (None, "") else 0.0
 
 
+def _actual_balance() -> float | None:
+    value = os.environ.get("OPENAI_ACTUAL_BALANCE_USD")
+    return float(value) if value not in (None, "") else None
+
+
 def _load_fallback() -> dict[str, Any]:
     fallback = BASE_DIR / "sample_snapshot.json"
     if not fallback.exists():
@@ -113,6 +118,7 @@ async def refresh_snapshot() -> None:
             remaining_source=int(next_snapshot.get("remaining_source", 0) or 0),
             credit_topups_usd=_credit_topups(),
             opening_balance_usd=_opening_balance(),
+            actual_balance_usd=_actual_balance(),
             configured=True,
             balance_costs_by_day=balance_costs,
         )
