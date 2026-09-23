@@ -98,6 +98,7 @@ def build_snapshot(
     target_total: int,
     costs_by_day: dict[str, float] | None = None,
     credit_topups_usd: float | None = None,
+    opening_balance_usd: float = 0.0,
     now: datetime | None = None,
     data_status: str = "live",
 ) -> dict[str, Any]:
@@ -141,17 +142,21 @@ def build_snapshot(
     ]
 
     current = next((row for row in reversed(runs) if row["state"] == "processing"), None)
-    costs_total = sum(costs_by_day.values()) if costs_by_day else sum(float(row.get("cost_usd", 0)) for row in runs)
-    today_key = now.date().isoformat()
-    costs_today = float(costs_by_day.get(today_key, 0)) if costs_by_day else float(daily_map[today_key]["cost_usd"])
-    last_7_keys = [(now.date() - timedelta(days=i)).isoformat() for i in range(7)]
-    costs_7d = sum(float(costs_by_day.get(day, 0)) for day in last_7_keys) if costs_by_day else sum(float(daily_map[day]["cost_usd"]) for day in last_7_keys)
-    ready_last_7 = sum(int(daily_map[day]["ready"]) for day in last_7_keys)
-    cost_per_ready = costs_7d / ready_last_7 if ready_last_7 else None
-    output_ratio = ready_total / processed_source if processed_source else 0
-    projected_ready = remaining * output_ratio
-    projected_cost = projected_ready * cost_per_ready if cost_per_ready is not None else None
-    balance = credit_topups_usd - costs_total if credit_topups_usd is not None else None
+    effective_costs = costs_by_day or {
+        day: float(values["cost_usd"])
+        for day, values in daily_map.items()
+    }
+    credits = build_credits(
+        costs_by_day=effective_costs,
+        daily=daily,
+        processed_source=processed_source,
+        ready_total=ready_total,
+        remaining_source=remaining,
+        credit_topups_usd=credit_topups_usd,
+        opening_balance_usd=opening_balance_usd,
+        now=now,
+        configured=bool(costs_by_day) or credit_topups_usd is not None,
+    )
 
     return {
         "generated_at": now.isoformat(),
@@ -170,14 +175,47 @@ def build_snapshot(
         "current_batch": current,
         "daily": daily,
         "batches": list(reversed(runs)),
-        "credits": {
-            "configured": credit_topups_usd is not None,
-            "balance_usd": round(balance, 2) if balance is not None else None,
-            "costs_today_usd": round(costs_today, 2),
-            "costs_7d_usd": round(costs_7d, 2),
-            "costs_total_usd": round(costs_total, 2),
-            "cost_per_ready_usd": round(cost_per_ready, 4) if cost_per_ready is not None else None,
-            "projected_cost_remaining_usd": round(projected_cost, 2) if projected_cost is not None else None,
-            "enough_to_finish": (balance >= projected_cost) if balance is not None and projected_cost is not None else None,
-        },
+        "credits": credits,
+    }
+
+
+def build_credits(
+    costs_by_day: dict[str, float],
+    daily: list[dict[str, Any]],
+    processed_source: int,
+    ready_total: int,
+    remaining_source: int,
+    credit_topups_usd: float | None,
+    opening_balance_usd: float = 0.0,
+    now: datetime | None = None,
+    configured: bool = True,
+    balance_costs_by_day: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    now = now or datetime.now(timezone.utc)
+    today_key = now.date().isoformat()
+    last_7_keys = [(now.date() - timedelta(days=i)).isoformat() for i in range(7)]
+    ready_by_day = {str(row.get("date")): int(row.get("ready", 0) or 0) for row in daily}
+    costs_total = sum(float(value) for value in costs_by_day.values())
+    costs_today = float(costs_by_day.get(today_key, 0))
+    costs_7d = sum(float(costs_by_day.get(day, 0)) for day in last_7_keys)
+    ready_last_7 = sum(ready_by_day.get(day, 0) for day in last_7_keys)
+    cost_per_ready = costs_7d / ready_last_7 if ready_last_7 else None
+    output_ratio = ready_total / processed_source if processed_source else 0
+    projected_ready = remaining_source * output_ratio
+    projected_cost = projected_ready * cost_per_ready if cost_per_ready is not None else None
+    balance_costs_total = sum(float(value) for value in (balance_costs_by_day or costs_by_day).values())
+    total_funds = opening_balance_usd + credit_topups_usd if credit_topups_usd is not None else None
+    balance = total_funds - balance_costs_total if total_funds is not None else None
+    return {
+        "configured": configured,
+        "opening_balance_usd": round(opening_balance_usd, 2) if credit_topups_usd is not None else None,
+        "topups_usd": round(credit_topups_usd, 2) if credit_topups_usd is not None else None,
+        "total_funds_usd": round(total_funds, 2) if total_funds is not None else None,
+        "balance_usd": round(balance, 2) if balance is not None else None,
+        "costs_today_usd": round(costs_today, 2),
+        "costs_7d_usd": round(costs_7d, 2),
+        "costs_total_usd": round(costs_total, 2),
+        "cost_per_ready_usd": round(cost_per_ready, 4) if cost_per_ready is not None else None,
+        "projected_cost_remaining_usd": round(projected_cost, 2) if projected_cost is not None else None,
+        "enough_to_finish": (balance >= projected_cost) if balance is not None and projected_cost is not None else None,
     }

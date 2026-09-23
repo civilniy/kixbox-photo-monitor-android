@@ -9,8 +9,12 @@ from typing import Any
 import httpx
 
 
-async def fetch_openai_costs() -> dict[str, float]:
-    """Read official organization costs with an OpenAI Admin API key."""
+async def fetch_openai_costs(project_id: str | None = None) -> dict[str, float]:
+    """Read official costs with an OpenAI Admin API key.
+
+    If project_id is provided, only costs attributed to that project are
+    returned. Omitting it returns organization-wide costs.
+    """
     key = os.environ.get("OPENAI_ADMIN_KEY")
     if not key:
         return {}
@@ -22,6 +26,8 @@ async def fetch_openai_costs() -> dict[str, float]:
         "bucket_width": "1d",
         "limit": 180,
     }
+    if project_id:
+        params["project_ids"] = [project_id]
     headers = {"Authorization": f"Bearer {key}"}
     costs: dict[str, float] = defaultdict(float)
     async with httpx.AsyncClient(timeout=30) as client:

@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from drive_source import DriveSource
-from engine import build_snapshot
+from engine import build_credits, build_snapshot
 from openai_costs import fetch_openai_costs
 
 
@@ -25,6 +25,11 @@ refresh_error: str | None = None
 def _credit_topups() -> float | None:
     value = os.environ.get("OPENAI_CREDIT_TOPUPS_USD")
     return float(value) if value not in (None, "") else None
+
+
+def _opening_balance() -> float:
+    value = os.environ.get("OPENAI_OPENING_BALANCE_USD")
+    return float(value) if value not in (None, "") else 0.0
 
 
 async def refresh_snapshot() -> None:
@@ -39,16 +44,32 @@ async def refresh_snapshot() -> None:
                 feed_snapshot = response.json()
             if feed_snapshot.get("data_status") != "live":
                 raise RuntimeError(feed_snapshot.get("error") or "Google feed is not live")
+            project_id = os.environ.get("OPENAI_PROJECT_ID")
+            costs = await fetch_openai_costs(project_id=project_id)
+            if os.environ.get("OPENAI_ADMIN_KEY"):
+                organization_costs = await fetch_openai_costs() if project_id else costs
+                feed_snapshot["credits"] = build_credits(
+                    costs_by_day=costs,
+                    daily=feed_snapshot.get("daily", []),
+                    processed_source=int(feed_snapshot.get("processed_source", 0) or 0),
+                    ready_total=int(feed_snapshot.get("ready_total", 0) or 0),
+                    remaining_source=int(feed_snapshot.get("remaining_source", 0) or 0),
+                    credit_topups_usd=_credit_topups(),
+                    opening_balance_usd=_opening_balance(),
+                    configured=True,
+                    balance_costs_by_day=organization_costs,
+                )
             snapshot = feed_snapshot
         else:
             source = DriveSource()
             runs = await asyncio.to_thread(source.load_runs)
-            costs = await fetch_openai_costs()
+            costs = await fetch_openai_costs(project_id=os.environ.get("OPENAI_PROJECT_ID"))
             snapshot = build_snapshot(
                 runs=runs,
                 target_total=int(os.environ.get("TARGET_SOURCE_TOTAL", "23000")),
                 costs_by_day=costs,
                 credit_topups_usd=_credit_topups(),
+                opening_balance_usd=_opening_balance(),
                 now=datetime.now(timezone.utc),
                 data_status="live",
             )
