@@ -129,19 +129,34 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
         refresh()
     }
 
-    fun refresh(silent: Boolean = false) {
+    fun refresh(silent: Boolean = false, forceServer: Boolean = false) {
         if (endpoint.isBlank()) {
             state = ScreenState.Error("Укажите адрес сервера мониторинга")
             return
         }
         val current = (state as? ScreenState.Ready)?.snapshot
+        val previousGeneratedAt = current?.generatedAt
         if (!silent) {
             state = current?.let { ScreenState.Ready(it.copy(dataStatus = "updating")) }
                 ?: ScreenState.Loading
         }
         viewModelScope.launch {
             state = try {
-                ScreenState.Ready(fetchSnapshot("$endpoint/api/v1/monitor"))
+                if (forceServer) triggerServerRefresh("$endpoint/api/v1/refresh")
+                var received = fetchSnapshot("$endpoint/api/v1/monitor")
+                if (forceServer) {
+                    var attempts = 0
+                    while ((received.generatedAt == previousGeneratedAt || received.dataStatus != "live") && attempts < 72) {
+                        state = ScreenState.Ready(received.copy(dataStatus = "updating"))
+                        delay(5_000)
+                        received = fetchSnapshot("$endpoint/api/v1/monitor")
+                        attempts += 1
+                    }
+                    if (received.generatedAt == previousGeneratedAt || received.dataStatus != "live") {
+                        received = received.copy(dataStatus = "updating")
+                    }
+                }
+                ScreenState.Ready(received)
             } catch (e: Exception) {
                 cachedSnapshot()?.let {
                     ScreenState.Ready(it.copy(dataStatus = "updating"))
@@ -154,6 +169,21 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
         prefs.getString("last_live_snapshot", null)?.let { raw ->
             runCatching { parseSnapshot(raw) }.getOrNull()
         }
+
+    private suspend fun triggerServerRefresh(url: String) = withContext(Dispatchers.IO) {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 12_000
+        connection.readTimeout = 20_000
+        if (apiToken.isNotBlank()) connection.setRequestProperty("Authorization", "Bearer $apiToken")
+        connection.requestMethod = "POST"
+        try {
+            if (connection.responseCode !in 200..299) {
+                error("Сервер вернул HTTP ${connection.responseCode}")
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
 
     private suspend fun fetchSnapshot(url: String): MonitorSnapshot = withContext(Dispatchers.IO) {
         val connection = URL(url).openConnection() as HttpURLConnection
@@ -252,7 +282,7 @@ private fun MonitorApp(vm: MonitorViewModel = viewModel()) {
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground),
                 actions = {
-                    IconButton(onClick = { vm.refresh() }) { Icon(Icons.Outlined.Refresh, "Обновить") }
+                    IconButton(onClick = { vm.refresh(forceServer = true) }) { Icon(Icons.Outlined.Refresh, "Обновить") }
                     IconButton(onClick = { showSettings = true }) { Icon(Icons.Outlined.Settings, "Настройки") }
                 }
             )
