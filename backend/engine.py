@@ -195,15 +195,9 @@ def build_credits(
     now = now or datetime.now(timezone.utc)
     today_key = now.date().isoformat()
     last_7_keys = [(now.date() - timedelta(days=i)).isoformat() for i in range(7)]
-    ready_by_day = {str(row.get("date")): int(row.get("ready", 0) or 0) for row in daily}
     project_costs_total = sum(float(value) for value in costs_by_day.values())
     costs_today = float(costs_by_day.get(today_key, 0))
     costs_7d = sum(float(costs_by_day.get(day, 0)) for day in last_7_keys)
-    ready_last_7 = sum(ready_by_day.get(day, 0) for day in last_7_keys)
-    cost_per_ready = costs_7d / ready_last_7 if ready_last_7 else None
-    output_ratio = ready_total / processed_source if processed_source else 0
-    projected_ready = remaining_source * output_ratio
-    projected_cost = projected_ready * cost_per_ready if cost_per_ready is not None else None
     balance_costs_total = sum(float(value) for value in (balance_costs_by_day or costs_by_day).values())
     total_funds = opening_balance_usd + credit_topups_usd if credit_topups_usd is not None else None
     balance = actual_balance_usd
@@ -212,6 +206,10 @@ def build_credits(
     if actual_balance_usd is not None and total_funds is not None:
         # The billing cabinet is authoritative; Costs API data may arrive late.
         balance_costs_total = total_funds - actual_balance_usd
+    cost_per_ready = balance_costs_total / ready_total if ready_total else None
+    output_ratio = ready_total / processed_source if processed_source else 0
+    projected_ready = remaining_source * output_ratio
+    projected_cost = projected_ready * cost_per_ready if cost_per_ready is not None else None
     return {
         "configured": configured,
         "opening_balance_usd": round(opening_balance_usd, 2) if credit_topups_usd is not None else None,
