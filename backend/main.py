@@ -20,6 +20,8 @@ from openai_costs import fetch_openai_costs
 BASE_DIR = Path(__file__).resolve().parent
 snapshot: dict[str, Any] = {}
 refresh_error: str | None = None
+refreshing = False
+manual_refresh_task: asyncio.Task[None] | None = None
 
 
 def _credit_topups() -> float | None:
@@ -84,43 +86,47 @@ async def _fetch_costs() -> tuple[dict[str, float], dict[str, float]]:
 
 
 async def refresh_snapshot() -> None:
-    global snapshot, refresh_error
-    admin_configured = bool(os.environ.get("OPENAI_ADMIN_KEY"))
-    photo_task = asyncio.create_task(_fetch_photo_snapshot())
-    costs_task = asyncio.create_task(_fetch_costs())
+    global snapshot, refresh_error, refreshing
+    refreshing = True
+    try:
+        admin_configured = bool(os.environ.get("OPENAI_ADMIN_KEY"))
+        photo_task = asyncio.create_task(_fetch_photo_snapshot())
+        costs_task = asyncio.create_task(_fetch_costs())
 
-    photo_result, costs_result = await asyncio.gather(
-        photo_task,
-        costs_task,
-        return_exceptions=True,
-    )
-
-    errors: list[str] = []
-    if isinstance(photo_result, BaseException):
-        errors.append(_error_text("Google Drive", photo_result))
-        next_snapshot = dict(snapshot) if snapshot else _load_fallback()
-    else:
-        next_snapshot = photo_result
-
-    if isinstance(costs_result, BaseException):
-        errors.append(_error_text("OpenAI costs", costs_result))
-    elif admin_configured:
-        project_costs_result, organization_costs_result = costs_result
-        next_snapshot["credits"] = build_credits(
-            costs_by_day=project_costs_result,
-            daily=next_snapshot.get("daily", []),
-            processed_source=int(next_snapshot.get("processed_source", 0) or 0),
-            ready_total=int(next_snapshot.get("ready_total", 0) or 0),
-            remaining_source=int(next_snapshot.get("remaining_source", 0) or 0),
-            credit_topups_usd=_credit_topups(),
-            opening_balance_usd=_opening_balance(),
-            actual_balance_usd=_actual_balance(),
-            configured=True,
-            balance_costs_by_day=organization_costs_result,
+        photo_result, costs_result = await asyncio.gather(
+            photo_task,
+            costs_task,
+            return_exceptions=True,
         )
 
-    snapshot = next_snapshot
-    refresh_error = "; ".join(errors) or None
+        errors: list[str] = []
+        if isinstance(photo_result, BaseException):
+            errors.append(_error_text("Google Drive", photo_result))
+            next_snapshot = dict(snapshot) if snapshot else _load_fallback()
+        else:
+            next_snapshot = photo_result
+
+        if isinstance(costs_result, BaseException):
+            errors.append(_error_text("OpenAI costs", costs_result))
+        elif admin_configured:
+            project_costs_result, organization_costs_result = costs_result
+            next_snapshot["credits"] = build_credits(
+                costs_by_day=project_costs_result,
+                daily=next_snapshot.get("daily", []),
+                processed_source=int(next_snapshot.get("processed_source", 0) or 0),
+                ready_total=int(next_snapshot.get("ready_total", 0) or 0),
+                remaining_source=int(next_snapshot.get("remaining_source", 0) or 0),
+                credit_topups_usd=_credit_topups(),
+                opening_balance_usd=_opening_balance(),
+                actual_balance_usd=_actual_balance(),
+                configured=True,
+                balance_costs_by_day=organization_costs_result,
+            )
+
+        snapshot = next_snapshot
+        refresh_error = "; ".join(errors) or None
+    finally:
+        refreshing = False
 
 
 async def refresh_loop() -> None:
@@ -157,17 +163,30 @@ def authorize(authorization: str | None = Header(default=None)) -> None:
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    return {"ok": bool(snapshot), "data_status": snapshot.get("data_status"), "refresh_error": refresh_error}
+    return {
+        "ok": bool(snapshot),
+        "data_status": "updating" if refreshing else snapshot.get("data_status"),
+        "refresh_error": refresh_error,
+    }
 
 
 @app.get("/api/v1/monitor", dependencies=[Depends(authorize)])
 def monitor() -> dict[str, Any]:
     if not snapshot:
         raise HTTPException(status_code=503, detail="Snapshot is not ready")
-    return snapshot
+    result = dict(snapshot)
+    if refreshing:
+        result["data_status"] = "updating"
+    return result
 
 
 @app.post("/api/v1/refresh", dependencies=[Depends(authorize)])
 async def refresh() -> dict[str, Any]:
-    await refresh_snapshot()
-    return {"ok": refresh_error is None, "refresh_error": refresh_error, "generated_at": snapshot.get("generated_at")}
+    global manual_refresh_task
+    if not refreshing and (manual_refresh_task is None or manual_refresh_task.done()):
+        manual_refresh_task = asyncio.create_task(refresh_snapshot())
+    return {
+        "ok": True,
+        "refreshing": True,
+        "generated_at": snapshot.get("generated_at"),
+    }
