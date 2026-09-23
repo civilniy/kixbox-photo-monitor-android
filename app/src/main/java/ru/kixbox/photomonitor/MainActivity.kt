@@ -135,7 +135,6 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
             return
         }
         val current = (state as? ScreenState.Ready)?.snapshot
-        val previousGeneratedAt = current?.generatedAt
         if (!silent) {
             state = current?.let { ScreenState.Ready(it.copy(dataStatus = "updating")) }
                 ?: ScreenState.Loading
@@ -146,13 +145,13 @@ class MonitorViewModel(application: Application) : AndroidViewModel(application)
                 var received = fetchSnapshot("$endpoint/api/v1/monitor")
                 if (forceServer) {
                     var attempts = 0
-                    while ((received.generatedAt == previousGeneratedAt || received.dataStatus != "live") && attempts < 72) {
+                    while (received.dataStatus != "live" && attempts < 72) {
                         state = ScreenState.Ready(received.copy(dataStatus = "updating"))
                         delay(5_000)
                         received = fetchSnapshot("$endpoint/api/v1/monitor")
                         attempts += 1
                     }
-                    if (received.generatedAt == previousGeneratedAt || received.dataStatus != "live") {
+                    if (received.dataStatus != "live") {
                         received = received.copy(dataStatus = "updating")
                     }
                 }
