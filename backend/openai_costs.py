@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from collections import defaultdict
@@ -32,7 +33,13 @@ async def fetch_openai_costs(project_id: str | None = None) -> dict[str, float]:
     costs: dict[str, float] = defaultdict(float)
     async with httpx.AsyncClient(timeout=30) as client:
         while True:
-            response = await client.get("https://api.openai.com/v1/organization/costs", params=params, headers=headers)
+            for attempt in range(3):
+                response = await client.get("https://api.openai.com/v1/organization/costs", params=params, headers=headers)
+                if response.status_code != 429 or attempt == 2:
+                    break
+                retry_after = response.headers.get("retry-after")
+                delay = float(retry_after) if retry_after else 2 ** attempt
+                await asyncio.sleep(min(max(delay, 1.0), 30.0))
             response.raise_for_status()
             payload = response.json()
             for bucket in payload.get("data", []):
