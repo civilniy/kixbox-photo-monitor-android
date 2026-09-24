@@ -198,15 +198,16 @@ def build_credits(
     project_costs_total = sum(float(value) for value in costs_by_day.values())
     costs_today = float(costs_by_day.get(today_key, 0))
     costs_7d = sum(float(costs_by_day.get(day, 0)) for day in last_7_keys)
-    balance_costs_total = sum(float(value) for value in (balance_costs_by_day or costs_by_day).values())
+    organization_costs_total = sum(float(value) for value in (balance_costs_by_day or costs_by_day).values())
     total_funds = opening_balance_usd + credit_topups_usd if credit_topups_usd is not None else None
     balance = actual_balance_usd
     if balance is None and total_funds is not None:
-        balance = total_funds - balance_costs_total
-    if actual_balance_usd is not None and total_funds is not None:
-        # The billing cabinet is authoritative; Costs API data may arrive late.
-        balance_costs_total = total_funds - actual_balance_usd
-    cost_per_ready = balance_costs_total / ready_total if ready_total else None
+        balance = total_funds - organization_costs_total
+
+    # Project economics must always come from the official project Costs API.
+    # The cabinet credit balance is organization-wide and cannot be used to
+    # reverse-calculate project spend: credits may expire or be spent elsewhere.
+    cost_per_ready = project_costs_total / ready_total if ready_total else None
     output_ratio = ready_total / processed_source if processed_source else 0
     projected_ready = remaining_source * output_ratio
     projected_cost = projected_ready * cost_per_ready if cost_per_ready is not None else None
@@ -218,8 +219,9 @@ def build_credits(
         "balance_usd": round(balance, 2) if balance is not None else None,
         "costs_today_usd": round(costs_today, 2),
         "costs_7d_usd": round(costs_7d, 2),
-        "costs_total_usd": round(balance_costs_total, 2),
+        "costs_total_usd": round(project_costs_total, 2),
         "project_costs_total_usd": round(project_costs_total, 2),
+        "organization_costs_total_usd": round(organization_costs_total, 2),
         "balance_source": "cabinet" if actual_balance_usd is not None else "calculated",
         "cost_per_ready_usd": round(cost_per_ready, 4) if cost_per_ready is not None else None,
         "projected_cost_remaining_usd": round(projected_cost, 2) if projected_cost is not None else None,
