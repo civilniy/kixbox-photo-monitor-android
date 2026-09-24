@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,6 +24,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -460,19 +462,61 @@ private fun FinanceMetric(label: String, value: String, modifier: Modifier = Mod
 private fun ThroughputCard(points: List<DailyPoint>) {
     val shown = points.takeLast(7)
     val max = (shown.maxOfOrNull { it.processed } ?: 1).coerceAtLeast(1)
+    var selectedIndex by remember(shown.map { it.date }) { mutableStateOf<Int?>(null) }
+    val selectedPoint = selectedIndex?.let(shown::getOrNull)
     Surface(shape = RoundedCornerShape(20.dp), color = Color.White) {
         Column(Modifier.padding(18.dp)) {
             Text("Динамика за 7 дней", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Text("Исходники и готовые фотографии", color = Muted, fontSize = 12.sp)
-            Spacer(Modifier.height(18.dp))
-            Canvas(Modifier.fillMaxWidth().height(150.dp)) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(42.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (selectedPoint == null) {
+                    Text("Нажмите на столбец, чтобы увидеть значения", color = Muted, fontSize = 10.sp)
+                } else {
+                    Row(
+                        modifier = Modifier.background(AppBackground, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 7.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(selectedPoint.date.takeLast(5), color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Исходники: ${intFormat(selectedPoint.processed)}", color = AccentDark, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Готовые: ${intFormat(selectedPoint.ready)}", color = Ink, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+            Canvas(
+                Modifier
+                    .fillMaxWidth()
+                    .height(150.dp)
+                    .pointerInput(shown) {
+                        detectTapGestures { offset ->
+                            if (shown.isNotEmpty()) {
+                                val index = (offset.x / (size.width.toFloat() / shown.size))
+                                    .toInt()
+                                    .coerceIn(shown.indices)
+                                selectedIndex = if (selectedIndex == index) null else index
+                            }
+                        }
+                    }
+            ) {
                 val groupWidth = size.width / shown.size.coerceAtLeast(1)
                 shown.forEachIndexed { index, point ->
                     val x = index * groupWidth + groupWidth * .15f
                     val sourceHeight = size.height * point.processed / max
                     val readyHeight = size.height * point.ready / max
-                    drawRoundRect(Accent, Offset(x, size.height - sourceHeight), Size(groupWidth * .30f, sourceHeight))
-                    drawRoundRect(AccentSoft, Offset(x + groupWidth * .34f, size.height - readyHeight), Size(groupWidth * .30f, readyHeight))
+                    val dimmed = selectedIndex != null && selectedIndex != index
+                    drawRoundRect(
+                        if (dimmed) Accent.copy(alpha = .28f) else Accent,
+                        Offset(x, size.height - sourceHeight),
+                        Size(groupWidth * .30f, sourceHeight)
+                    )
+                    drawRoundRect(
+                        if (dimmed) AccentSoft.copy(alpha = .32f) else AccentSoft,
+                        Offset(x + groupWidth * .34f, size.height - readyHeight),
+                        Size(groupWidth * .30f, readyHeight)
+                    )
                 }
             }
             Row(Modifier.fillMaxWidth()) {
