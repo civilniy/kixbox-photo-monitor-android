@@ -75,8 +75,9 @@ class EngineTests(unittest.TestCase):
             opening_balance_usd=0.0,
             now=datetime(2026, 9, 23, tzinfo=timezone.utc),
         )
-        self.assertEqual(result["costs_total_usd"], 10.0)
+        self.assertEqual(result["costs_total_usd"], 9.0)
         self.assertEqual(result["project_costs_total_usd"], 9.0)
+        self.assertEqual(result["organization_costs_total_usd"], 10.0)
         self.assertEqual(result["balance_usd"], 90.0)
 
     def test_actual_cabinet_balance_wins_over_delayed_costs(self) -> None:
@@ -91,10 +92,10 @@ class EngineTests(unittest.TestCase):
             actual_balance_usd=71.35,
         )
         self.assertEqual(result["balance_usd"], 71.35)
-        self.assertEqual(result["costs_total_usd"], 928.10)
+        self.assertEqual(result["costs_total_usd"], 808.46)
         self.assertEqual(result["project_costs_total_usd"], 808.46)
         self.assertEqual(result["balance_source"], "cabinet")
-        self.assertEqual(result["cost_per_ready_usd"], 0.1149)
+        self.assertEqual(result["cost_per_ready_usd"], 0.1001)
 
 
 if __name__ == "__main__":
