@@ -10,7 +10,10 @@ from typing import Any
 import httpx
 
 
-async def fetch_openai_costs(project_id: str | None = None) -> dict[str, float]:
+async def fetch_openai_costs(
+    project_id: str | None = None,
+    start_time: int | None = None,
+) -> dict[str, float]:
     """Read official costs with an OpenAI Admin API key.
 
     If project_id is provided, only costs attributed to that project are
@@ -19,8 +22,9 @@ async def fetch_openai_costs(project_id: str | None = None) -> dict[str, float]:
     key = os.environ.get("OPENAI_ADMIN_KEY")
     if not key:
         return {}
-    start_date = os.environ.get("OPENAI_COST_START_DATE", "2026-08-01")
-    start_time = int(datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc).timestamp())
+    if start_time is None:
+        start_date = os.environ.get("OPENAI_COST_START_DATE", "2026-08-01")
+        start_time = int(datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc).timestamp())
     params: dict[str, Any] = {
         "start_time": start_time,
         "end_time": int(time.time()) + 1,
