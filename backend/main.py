@@ -39,6 +39,17 @@ def _actual_balance() -> float | None:
     return float(value) if value not in (None, "") else None
 
 
+def _balance_anchor() -> tuple[float, int] | None:
+    value = os.environ.get("OPENAI_BALANCE_ANCHOR_USD")
+    timestamp = os.environ.get("OPENAI_BALANCE_ANCHOR_AT")
+    if value in (None, "") or timestamp in (None, ""):
+        return None
+    parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return float(value), int(parsed.timestamp())
+
+
 def _load_fallback() -> dict[str, Any]:
     fallback = BASE_DIR / "sample_snapshot.json"
     if not fallback.exists():
@@ -80,11 +91,16 @@ async def _fetch_photo_snapshot() -> dict[str, Any]:
     )
 
 
-async def _fetch_costs() -> tuple[dict[str, float], dict[str, float]]:
+async def _fetch_costs() -> tuple[dict[str, float], dict[str, float], float | None]:
     project_id = os.environ.get("OPENAI_PROJECT_ID")
     project_costs = await fetch_openai_costs(project_id=project_id)
     organization_costs = await fetch_openai_costs() if project_id else project_costs
-    return project_costs, organization_costs
+    balance = _actual_balance()
+    anchor = _balance_anchor()
+    if anchor:
+        costs_after_anchor = await fetch_openai_costs(start_time=anchor[1])
+        balance = anchor[0] - sum(costs_after_anchor.values())
+    return project_costs, organization_costs, balance
 
 
 async def refresh_snapshot() -> None:
@@ -113,7 +129,7 @@ async def refresh_snapshot() -> None:
             if snapshot.get("credits"):
                 next_snapshot["credits"] = snapshot["credits"]
         elif admin_configured:
-            project_costs_result, organization_costs_result = costs_result
+            project_costs_result, organization_costs_result, current_balance = costs_result
             next_snapshot["credits"] = build_credits(
                 costs_by_day=project_costs_result,
                 daily=next_snapshot.get("daily", []),
@@ -122,7 +138,7 @@ async def refresh_snapshot() -> None:
                 remaining_source=int(next_snapshot.get("remaining_source", 0) or 0),
                 credit_topups_usd=_credit_topups(),
                 opening_balance_usd=_opening_balance(),
-                actual_balance_usd=_actual_balance(),
+                actual_balance_usd=current_balance,
                 configured=True,
                 balance_costs_by_day=organization_costs_result,
             )
