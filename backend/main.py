@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -221,8 +222,16 @@ from rename_api import router as rename_router
 app.include_router(rename_router)
 
 
-@app.get("/api/v1/rename-monitor", dependencies=[Depends(authorize)])
-def get_rename_monitor():
-    if not os.environ.get("MONITOR_API_TOKEN"):
+def authorize_rename_monitor(authorization: str | None = Header(default=None)) -> None:
+    # Phone uses its existing read-only token; operator may inspect with the rename credential.
+    tokens = [os.environ.get("MONITOR_API_TOKEN"), os.environ.get("RENAME_API_TOKEN")]
+    configured = [token for token in tokens if token]
+    if not configured:
         raise HTTPException(503, "Monitor token is not configured")
+    if not any(secrets.compare_digest(authorization or "", f"Bearer {token}") for token in configured):
+        raise HTTPException(401, "Invalid monitor token")
+
+
+@app.get("/api/v1/rename-monitor", dependencies=[Depends(authorize_rename_monitor)])
+def get_rename_monitor():
     return rename_monitor.get_snapshot()

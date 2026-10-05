@@ -38,3 +38,14 @@ class RenameMonitorTests(unittest.TestCase):
     def test_decrease_does_not_create_misleading_eta(self):
         self.raw['history']=[{'at':(self.now-timedelta(hours=i)).isoformat(),'renamed':v} for i,v in [(3,400),(2,900),(0,842)]]
         self.assertIsNone(build_snapshot(self.raw,now=self.now)['pace_per_hour'])
+    def test_monitor_auth_does_not_allow_missing_or_wrong_key(self):
+        import os
+        from unittest.mock import patch
+        from main import authorize_rename_monitor
+        from fastapi import HTTPException
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(HTTPException) as exc:authorize_rename_monitor(None)
+            self.assertEqual(exc.exception.status_code,503)
+        with patch.dict(os.environ, {'MONITOR_API_TOKEN':'read','RENAME_API_TOKEN':'write'}, clear=True):
+            with self.assertRaises(HTTPException):authorize_rename_monitor('Bearer wrong')
+            authorize_rename_monitor('Bearer read');authorize_rename_monitor('Bearer write')
