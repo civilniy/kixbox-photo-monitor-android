@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from drive_source import DriveSource
 from engine import build_credits, build_snapshot
 from openai_costs import fetch_openai_costs
+import rename_monitor
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -161,8 +162,10 @@ async def lifespan(_: FastAPI):
     if not snapshot:
         snapshot = _load_fallback()
     task = asyncio.create_task(refresh_loop())
+    rename_task = asyncio.create_task(rename_monitor.refresh_loop())
     yield
     task.cancel()
+    rename_task.cancel()
 
 
 app = FastAPI(title="KIXBOX Photo Monitor API", version="1.0.0", lifespan=lifespan)
@@ -216,3 +219,10 @@ async def refresh() -> dict[str, Any]:
 # Rename routes have their own mandatory token and fail closed until configured.
 from rename_api import router as rename_router
 app.include_router(rename_router)
+
+
+@app.get("/api/v1/rename-monitor", dependencies=[Depends(authorize)])
+def get_rename_monitor():
+    if not os.environ.get("MONITOR_API_TOKEN"):
+        raise HTTPException(503, "Monitor token is not configured")
+    return rename_monitor.get_snapshot()

@@ -1,0 +1,13 @@
+const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
+const values={};const props={getProperty:k=>values[k]??null,setProperties:o=>Object.assign(values,o),deleteProperty:k=>delete values[k]};
+const ctx={PropertiesService:{getScriptProperties:()=>props},Date,JSON,Object,Number,String,RENAME_ROOT_ID:'root',UrlFetchApp:{fetchAll:()=>[]}};
+vm.createContext(ctx);vm.runInContext(fs.readFileSync('../apps-script/rename_monitor.gs','utf8'),ctx);
+const folder=(id,name)=>({id,name,mimeType:'application/vnd.google-apps.folder'}),image=id=>({id,name:id+'.jpg',mimeType:'image/jpeg'});
+const tree={root:{files:[folder('day','2026_08_22'),image('loose'),{id:'csv',mimeType:'text/csv'}]},day:{files:[image('unresolved'),folder('renamed','Переименовано'),folder('nested','текстиль'),folder('report','Отчёты переименования')],nextPageToken:'next'},'day:next':{files:[image('late')]},renamed:{files:[image('done')]},nested:{files:[image('waiting')]}};
+ctx.rmList_=(id,page)=>{assert.notEqual(id,'report');return tree[id+(page?':'+page:'')]};
+let d=ctx.rmScan_();assert.equal(d.scanning,false);assert.equal(d.snapshot.folders.length,2);
+const day=d.snapshot.folders.find(x=>x.id==='day');assert.equal(day.total,4);assert.equal(day.renamed,1);assert.equal(d.snapshot.excluded_files,1);
+ctx.rmWork_({phase:'paused',review_ids:{day:['unresolved012345']}});
+assert.throws(()=>ctx.rmWork_({phase:'renaming',folder_id:'unknown'}));
+let before=JSON.stringify(values);ctx.rmList_=()=>{throw Error('must use cache')};d=ctx.rmScan_();assert.equal(d.snapshot.folders.find(x=>x.id==='day').total,4);
+console.log('Inventory: nested folders, pagination, root photos, exclusions, cache and work boundary passed');

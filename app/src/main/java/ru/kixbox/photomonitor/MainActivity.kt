@@ -271,6 +271,8 @@ private fun parseSnapshot(raw: String): MonitorSnapshot {
 @Composable
 private fun MonitorApp(vm: MonitorViewModel = viewModel()) {
     var showSettings by remember { mutableStateOf(false) }
+    var tab by remember { mutableStateOf(1) }
+    var renameRefresh by remember { mutableStateOf(0) }
     Scaffold(
         containerColor = AppBackground,
         topBar = {
@@ -283,16 +285,23 @@ private fun MonitorApp(vm: MonitorViewModel = viewModel()) {
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground),
                 actions = {
-                    IconButton(onClick = { vm.refresh(forceServer = true) }) { Icon(Icons.Outlined.Refresh, "Обновить") }
+                    IconButton(onClick = { if (tab == 0) vm.refresh(forceServer = true) else renameRefresh++ }) { Icon(Icons.Outlined.Refresh, "Обновить") }
                     IconButton(onClick = { showSettings = true }) { Icon(Icons.Outlined.Settings, "Настройки") }
                 }
             )
         }
     ) { padding ->
-        when (val state = vm.state) {
+        Column(Modifier.padding(padding)) {
+            TabRow(selectedTabIndex = tab, containerColor = AppBackground) {
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Ретушь") })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Переименование") })
+            }
+            if (tab == 1) RenameScreen(vm.endpoint, vm.apiToken, renameRefresh, Modifier.weight(1f))
+            else when (val state = vm.state) {
             ScreenState.Loading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            is ScreenState.Error -> ErrorState(state.message, Modifier.padding(padding)) { showSettings = true }
-            is ScreenState.Ready -> Dashboard(state.snapshot, Modifier.padding(padding))
+            is ScreenState.Error -> ErrorState(state.message, Modifier) { showSettings = true }
+            is ScreenState.Ready -> Dashboard(state.snapshot, Modifier)
+            }
         }
     }
     if (showSettings) {

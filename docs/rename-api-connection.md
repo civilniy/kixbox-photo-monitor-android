@@ -40,3 +40,19 @@ Start requires the intended request ID. After a timeout, inspect status before r
 Backend: `civilniy/kixbox-photo-monitor-android`, `backend/rename_api.py`.
 Apps Script project: `162PgD7RzSJh5gO-Zz-tshw44AEoA-VhYIOkoI0u0FgJVqwlPLxxVYhuc`.
 Keep using its existing deployment and shared secret. Browser is needed only for exceptional maintenance, not the daily queue workflow.
+
+## Android folder monitoring (v1.1)
+
+`GET /api/v1/rename-monitor` uses the existing **MONITOR_API_TOKEN** (read only).
+Never put the rename/write credential into the APK. All writes still use Render → Apps Script.
+The inventory recursively scans all immediate folders under the approved ready root. Only image MIME types count; report folders, non-images and shortcuts are not followed. Images within «Переименовано» count as renamed, including prior sessions. Images outside day folders appear as a separate root row. Empty folders remain visible, but are not counted complete.
+
+The denominator is the current image inventory, not the old retouch target. Retouch can add files and lower the percentage. Full scans are checkpointed by page, repeat no sooner than 5 minutes, and publish atomically after completion. The prior timestamp remains visible while scanning. Android polls the cached API every 30 seconds. Scans are not transactional with external Drive changes; the following cycle reconciles any concurrent move.
+
+Record the actual assistant phase through `POST /api/v1/rename/work` with the existing rename bearer token. Body: `{"phase":"reviewing","folder_id":"<verified ID>","folder_name":"2026_08_25","message":"Читаю бирки"}`. Allowed phases: paused, reviewing, matching, renaming, verifying, idle, error. Update at each phase change and at least every 10 minutes during analysis. Stop/pause must be explicitly recorded. More than 15 minutes without a heartbeat is displayed as awaiting_update, never fabricated active work. A live API queue overrides the display automatically.
+
+Optional `review_ids` maps top-level folder IDs to arrays of unresolved Drive file IDs; preserve all other folders when replacing this map. Counts are intersected with current non-renamed images during each scan. "0 marked" does not mean an unreviewed folder has no ambiguous files.
+
+Forecast uses observed wall-clock net progress (including review and pauses) over up to 7 days. It needs at least 3 observations and 2 hours, rejects decreases/rollbacks and never extrapolates one fast batch. When paused, only the indicative duration is available, not a completion date. This is an estimate at current pace; unresolved files may take longer.
+
+Apps Script deployment must include `rename_monitor.gs` and the monitor routes from `rename_queue_api_v2.gs`; existing project and deployment, scopes and shared secret are reused. No new trigger, paid service or credential is required.

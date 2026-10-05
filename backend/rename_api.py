@@ -134,3 +134,13 @@ async def submit_plan(plan: dict = Body(...)):
 @router.get("/registry", dependencies=[Depends(authorize_rename)])
 async def registry():
     return await call_script("registry")
+
+
+@router.post("/work", dependencies=[Depends(authorize_rename)])
+async def update_work(work: dict = Body(...)):
+    """Record analysis phase/heartbeat without starting the rename queue."""
+    result = await call_script("monitor_work", work)
+    import rename_monitor
+    if rename_monitor.snapshot:
+        rename_monitor.snapshot = dict(rename_monitor.snapshot, work=result["work"])
+    return result
