@@ -211,3 +211,8 @@ async def refresh() -> dict[str, Any]:
         "refreshing": True,
         "generated_at": snapshot.get("generated_at"),
     }
+
+
+# Rename routes have their own mandatory token and fail closed until configured.
+from rename_api import router as rename_router
+app.include_router(rename_router)
