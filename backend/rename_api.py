@@ -2,9 +2,10 @@
 import asyncio
 import os
 import secrets
+import json
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException
 
 router = APIRouter(prefix="/api/v1/rename", tags=["Photo renaming"])
 _task = None
@@ -21,7 +22,7 @@ def authorize_rename(authorization: str | None = Header(default=None)):
         raise HTTPException(401, "Invalid rename token")
 
 
-async def call_script(action: str):
+async def call_script(action: str, payload: dict | None = None):
     url = os.environ.get("GOOGLE_RENAME_SCRIPT_URL")
     token = os.environ.get("RENAME_API_TOKEN")
     if not url or not token:
@@ -33,7 +34,10 @@ async def call_script(action: str):
     async with httpx.AsyncClient(timeout=220, follow_redirects=True) as client:
         for attempt in range(attempts):
             try:
-                response = await client.post(url, json={"action": action, "token": token, "limit": 25})
+                request = {"action": action, "token": token, "limit": 25}
+                if payload is not None:
+                    request["plan"] = payload
+                response = await client.post(url, json=request)
                 response.raise_for_status()
                 data = response.json()
                 if not isinstance(data, dict):
@@ -87,12 +91,14 @@ async def status():
 
 
 @router.post("/start", dependencies=[Depends(authorize_rename)])
-async def start():
+async def start(expected: dict | None = Body(default=None)):
     global _task, _stop, _last
     async with _start_lock:
         if _task is not None and not _task.done():
             return {"started": False, "state": "running"}
         initial = await call_script("status")
+        if expected and expected.get("request_id") != initial.get("request_id"):
+            raise HTTPException(409, "Active plan differs from requested plan")
         if initial.get("errors"):
             return dict(initial, started=False, state="needs_review")
         _stop = False
@@ -106,3 +112,25 @@ async def stop():
     global _stop
     _stop = True
     return {"state": "stopping_after_current_batch"}
+
+
+@router.post("/plan", dependencies=[Depends(authorize_rename)])
+async def submit_plan(plan: dict = Body(...)):
+    """Stage a reviewed queue without starting it; Google persists its audit log."""
+    global _last
+    ops = plan.get("operations")
+    if not isinstance(ops, list) or not 1 <= len(ops) <= 1000:
+        raise HTTPException(422, "A plan needs 1 to 1000 operations")
+    if len(json.dumps(plan, ensure_ascii=False).encode("utf-8")) > 1_000_000:
+        raise HTTPException(413, "Plan is too large")
+    async with _start_lock:
+        if _task is not None and not _task.done():
+            raise HTTPException(409, "Current queue is running")
+        result = await call_script("import_plan", plan)
+        _last = dict(result, state="prepared")
+        return _last
+
+
+@router.get("/registry", dependencies=[Depends(authorize_rename)])
+async def registry():
+    return await call_script("registry")
