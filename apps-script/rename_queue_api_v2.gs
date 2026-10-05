@@ -77,7 +77,7 @@ function doPost(e) {
   const secret=PropertiesService.getScriptProperties().getProperty('RENAME_API_TOKEN');
   if(!secret||b.token!==secret)return renameJson_({ok:false,error:'Unauthorized'});
   if(!['run','status','import_plan','registry','monitor_scan','monitor_work'].includes(b.action))return renameJson_({ok:false,error:'Unknown action'});
-  const lock=LockService.getScriptLock();if(!lock.tryLock(1000))return renameJson_({ok:false,error:'Busy'});
+  const lock=b.action.startsWith('monitor_')?LockService.getUserLock():LockService.getScriptLock();if(!lock.tryLock(1000))return renameJson_({ok:false,error:'Busy'});
   try {
     if(b.action==='monitor_scan')return renameJson_(rmScan_());
     if(b.action==='monitor_work')return renameJson_(rmWork_(b.plan));

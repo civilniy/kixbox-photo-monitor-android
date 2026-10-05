@@ -39,7 +39,7 @@ function rmScan_() {
   if(!scan&&old&&now-Date.parse(old.generated_at)<300000)return {ok:true,snapshot:old,work:work,scanning:false};
   if(!scan)scan={started_at:new Date().toISOString(),pending:[{id:RENAME_ROOT_ID,top:null,renamed:false}],folders:{},visited:{},excluded_files:0,visited_folders:0};
   // A checkpoint after each page permits bounded, resumable scans.
-  while(scan.pending.length&&Date.now()-now<18000) {
+  while(scan.pending.length&&Date.now()-now<4000) {
     const item=scan.pending[0],data=rmList_(item.id,item.page);
     for(const f of data.files||[]) {
       if(f.mimeType==='application/vnd.google-apps.folder') {
