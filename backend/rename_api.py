@@ -10,6 +10,7 @@ router = APIRouter(prefix="/api/v1/rename", tags=["Photo renaming"])
 _task = None
 _last = {"state": "idle"}
 _stop = False
+_start_lock = asyncio.Lock()
 
 
 def authorize_rename(authorization: str | None = Header(default=None)):
@@ -26,16 +27,27 @@ async def call_script(action: str):
     if not url or not token:
         raise HTTPException(503, "Google rename script is not configured")
     try:
-        async with httpx.AsyncClient(timeout=220, follow_redirects=True) as client:
-            response = await client.post(url, json={"action": action, "token": token, "limit": 25})
-            response.raise_for_status()
-            data = response.json()
-    except (httpx.HTTPError, ValueError):
-        # Never return a request URL/token or upstream HTML to clients.
-        raise HTTPException(502, "Google rename script did not return valid data") from None
-    if not data.get("ok"):
-        raise HTTPException(502, str(data.get("error", "Rename script failed")))
-    return data
+        attempts = max(1, min(5, int(os.environ.get("RENAME_HTTP_RETRIES", "3"))))
+    except ValueError:
+        attempts = 3
+    async with httpx.AsyncClient(timeout=220, follow_redirects=True) as client:
+        for attempt in range(attempts):
+            try:
+                response = await client.post(url, json={"action": action, "token": token, "limit": 25})
+                response.raise_for_status()
+                data = response.json()
+                if not isinstance(data, dict):
+                    raise ValueError("Invalid response")
+                if data.get("ok"):
+                    return data
+                if data.get("error") != "Busy":
+                    raise HTTPException(502, str(data.get("error", "Rename script failed")))
+            except (httpx.HTTPError, ValueError):
+                pass
+            if attempt + 1 < attempts:
+                # The persisted plan makes retries safe after a partial batch.
+                await asyncio.sleep(2 ** attempt)
+    raise HTTPException(502, "Google rename script did not return valid data after retries")
 
 
 async def run_queue():
@@ -57,7 +69,7 @@ async def run_queue():
             await asyncio.sleep(0.5)
         _last["state"] = "stopped"
     except HTTPException as error:
-        _last = {"state": "error", "error": error.detail}
+        _last = dict(_last, state="error", error=error.detail)
     except asyncio.CancelledError:
         _last["state"] = "interrupted"
         raise
@@ -68,21 +80,25 @@ async def status():
     # During a batch the script lock is held; last response is served immediately.
     if _task is not None and not _task.done():
         return _last
-    return dict(await call_script("status"), state=_last.get("state", "idle"))
+    result = dict(await call_script("status"), state=_last.get("state", "idle"))
+    if _last.get("error"):
+        result["error"] = _last["error"]
+    return result
 
 
 @router.post("/start", dependencies=[Depends(authorize_rename)])
 async def start():
     global _task, _stop, _last
-    if _task is not None and not _task.done():
-        return {"started": False, "state": "running"}
-    initial = await call_script("status")
-    if initial.get("errors"):
-        return dict(initial, started=False, state="needs_review")
-    _stop = False
-    _last = dict(initial, state="running")
-    _task = asyncio.create_task(run_queue())
-    return dict(_last, started=True)
+    async with _start_lock:
+        if _task is not None and not _task.done():
+            return {"started": False, "state": "running"}
+        initial = await call_script("status")
+        if initial.get("errors"):
+            return dict(initial, started=False, state="needs_review")
+        _stop = False
+        _last = dict(initial, state="running")
+        _task = asyncio.create_task(run_queue())
+        return dict(_last, started=True)
 
 
 @router.post("/stop", dependencies=[Depends(authorize_rename)])
