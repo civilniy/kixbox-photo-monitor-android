@@ -1,8 +1,9 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 function test(options={}){
  const iter=a=>({hasNext:()=>a.length,next:()=>a.shift()});
- const root={getId:()=> '10WDNKBJMtuwwGiVD6p1OhSOG9jQcNq-f'},src={getId:()=> 'src',getName:()=> 'day',getParents:()=>iter([root])};
- const dst={getId:()=> 'dst',getName:()=> 'Переименовано',getParents:()=>iter([src])};
+ const root={getId:()=> '10WDNKBJMtuwwGiVD6p1OhSOG9jQcNq-f'},day={getId:()=> 'day-root',getName:()=> options.foreign?'other-day':'day',getParents:()=>iter([root])};
+ const src={getId:()=> 'src',getName:()=> 'day',getParents:()=>iter([options.nested?day:root])};
+ const dst={getId:()=> 'dst',getName:()=> 'Переименовано',getParents:()=>iter([options.nested?day:src])};
  const op={id:'image',parent:'src',destination:'dst',day:'day',name:'old.jpg',new_name:'new.jpg',status:'pending'};
  const f={id:'image',name:options.done?'new.jpg':'old.jpg',parents:[options.done?'dst':'src'],mimeType:'image/jpeg',trashed:false};
  const p={operations:[op]},saved=[];let patches=0;
@@ -17,7 +18,7 @@ function test(options={}){
     return response(options.changed?{...f,name:'unexpected.jpg'}:f);
   })}};
  vm.createContext(c);vm.runInContext(fs.readFileSync(__dirname+'/../rename_api.gs','utf8'),c);
- c.RENAME_ROOT_ID='root';c.renameFastBatch_(p,{setContent:s=> saved.push(JSON.parse(s))},25);
+ c.renameFastBatch_(p,{setContent:s=> saved.push(JSON.parse(s))},25);
  return {op,patches,saved};
 }
 let t=test();assert.equal(t.op.status,'completed');assert.equal(t.patches,1);
@@ -25,4 +26,6 @@ t=test({done:true});assert.equal(t.patches,0);assert.equal(t.op.status,'complete
 t=test({collision:true});assert.equal(t.patches,0);assert.match(t.op.error,/collision/);
 t=test({changed:true});assert.equal(t.patches,0);assert.match(t.op.error,/name changed/);
 t=test({failed:true});assert.equal(t.op.status,'error');assert.match(t.op.error,/403/);
-console.log('5 parallel batch safety scenarios passed');
+t=test({nested:true});assert.equal(t.op.status,'completed');assert.equal(t.patches,1);
+assert.throws(()=>test({nested:true,foreign:true}),/Folder differs/);
+console.log('7 parallel batch safety scenarios passed');
