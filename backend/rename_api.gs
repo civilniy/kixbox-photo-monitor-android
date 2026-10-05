@@ -41,7 +41,7 @@ function renameOneExact_(op) {
   op.status = 'completed'; op.completed_at = new Date().toISOString(); delete op.error;
 }
 
-function doPost(e) {
+function doPostLegacy(e) {
   let body;
   try { body = JSON.parse(e.postData.contents); } catch (_) { return renameJson_({ok:false,error:'Invalid JSON'}); }
   const secret = PropertiesService.getScriptProperties().getProperty('RENAME_API_TOKEN');
@@ -76,4 +76,91 @@ function doPost(e) {
 
 function renameJson_(data) {
   return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function renameRestRequest_(path, method, body) {
+  const req = {url:'https://www.googleapis.com/drive/v3/'+path, method:method||'get',
+    headers:{Authorization:'Bearer '+ScriptApp.getOAuthToken()}, muteHttpExceptions:true};
+  if (body) {req.contentType='application/json';req.payload=JSON.stringify(body);}
+  return req;
+}
+function renameApiAuthorize() {
+  const response=UrlFetchApp.fetchAll([renameRestRequest_(renameFilePath_(RENAME_PLAN_ID))])[0];
+  const file=renameRestResult_(response); Logger.log('Rename registry API ready: '+file.id);
+}
+function renameRestResult_(response) {
+  if (response.getResponseCode()<200 || response.getResponseCode()>=300) throw new Error('Drive HTTP '+response.getResponseCode());
+  return JSON.parse(response.getContentText());
+}
+function renameFilePath_(id) {return 'files/'+encodeURIComponent(id)+'?fields=id,name,parents,mimeType,trashed';}
+function renameFastValidate_(op,file,collisions) {
+  if(op.name.includes('_ПРОВЕРИТЬ_БИРКУ') || /[\/\\]/.test(op.new_name)) throw new Error('Unsafe name');
+  if(!/^image\//.test(file.mimeType) || file.trashed) throw new Error('Invalid image');
+  if(![op.name,op.new_name].includes(file.name)) throw new Error('File name changed outside plan');
+  const parents=file.parents||[];
+  if(!parents.includes(op.parent) && !parents.includes(op.destination)) throw new Error('File moved outside plan');
+  if(parents.includes(op.destination) && file.name!==op.new_name) throw new Error('Unexpected destination name');
+  if(collisions.files.some(x=>x.id!==op.id)) throw new Error('Destination collision');
+}
+function renameFastBatch_(plan,planFile,limit) {
+  const ops=plan.operations.filter(x=>!['completed','error'].includes(x.status)).slice(0,limit);
+  if(!ops.length) return 0;
+  const validatedFolders={};
+  for(const op of ops) {
+    const key=op.parent+'|'+op.destination;
+    if(validatedFolders[key]) continue;
+    const p=DriveApp.getFolderById(op.parent),d=DriveApp.getFolderById(op.destination);
+    if(!renameDirectParent_(p,RENAME_ROOT_ID) || p.getName()!==op.day || !renameDirectParent_(d,op.parent) || d.getName()!=='Переименовано') throw new Error('Folder differs from approved plan');
+    validatedFolders[key]=true;
+  }
+  const requests=[];
+  for(const op of ops) {
+    requests.push(renameRestRequest_(renameFilePath_(op.id)));
+    const escape=s=>s.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    const q="'"+escape(op.destination)+"' in parents and name = '"+escape(op.new_name)+"' and trashed = false";
+    requests.push(renameRestRequest_('files?q='+encodeURIComponent(q)+'&pageSize=2&fields=files(id),nextPageToken'));
+  }
+  const responses=UrlFetchApp.fetchAll(requests),work=[];
+  for(let i=0;i<ops.length;i++) {
+    const op=ops[i];
+    try {
+      const file=renameRestResult_(responses[2*i]),collision=renameRestResult_(responses[2*i+1]);
+      renameFastValidate_(op,file,collision);
+      if(file.name===op.new_name && (file.parents||[]).includes(op.destination)) {
+        op.status='completed';op.completed_at=new Date().toISOString();delete op.error;
+      } else {
+        op.status='in_progress';
+        const move=(file.parents||[]).includes(op.destination)?'':'&addParents='+encodeURIComponent(op.destination)+'&removeParents='+encodeURIComponent(op.parent);
+        work.push({op,request:renameRestRequest_(renameFilePath_(op.id)+move,'patch',{name:op.new_name})});
+      }
+    } catch(e) {op.status='error';op.error=String(e);}
+  }
+  plan.updated_at=new Date().toISOString();planFile.setContent(JSON.stringify(plan));
+  if(work.length) {
+    const updates=UrlFetchApp.fetchAll(work.map(x=>x.request));
+    for(let i=0;i<work.length;i++) {
+      const op=work[i].op;
+      try {
+        const f=renameRestResult_(updates[i]);
+        if(f.id!==op.id || f.name!==op.new_name || !(f.parents||[]).includes(op.destination)) throw new Error('Verification failed');
+        op.status='completed';op.completed_at=new Date().toISOString();delete op.error;
+      } catch(e) {op.status='error';op.error=String(e);}
+    }
+  }
+  plan.updated_at=new Date().toISOString();planFile.setContent(JSON.stringify(plan));
+  return ops.length;
+}
+function doPost(e) {
+  let b;try{b=JSON.parse(e.postData.contents);}catch(_){return renameJson_({ok:false,error:'Invalid JSON'});}
+  const secret=PropertiesService.getScriptProperties().getProperty('RENAME_API_TOKEN');
+  if(!secret || b.token!==secret) return renameJson_({ok:false,error:'Unauthorized'});
+  if(!['run','status'].includes(b.action)) return renameJson_({ok:false,error:'Unknown action'});
+  const lock=LockService.getScriptLock();if(!lock.tryLock(1000)) return renameJson_({ok:false,error:'Busy'});
+  try {
+    const pf=DriveApp.getFileById(RENAME_PLAN_ID),p=JSON.parse(pf.getBlob().getDataAsString('UTF-8'));
+    if(!Array.isArray(p.operations)||p.operations.length!==1515) throw new Error('Invalid approved plan');
+    if(b.action==='status') return renameJson_(renameSummary_(p));
+    const attempted=renameFastBatch_(p,pf,Math.max(1,Math.min(25,Number(b.limit)||25)));
+    return renameJson_(Object.assign(renameSummary_(p),{attempted}));
+  }catch(error){return renameJson_({ok:false,error:String(error)});}finally{lock.releaseLock();}
 }
