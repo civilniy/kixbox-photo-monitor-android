@@ -11,7 +11,7 @@ function scenario(options = {}) {
   let renames = 0, moves = 0;
   const image = {getId: () => 'photo', getName: () => name, getMimeType: () => 'image/jpeg', isTrashed: () => false,
     getParents: () => iterator([location]), setName: n => {name=n;renames++;}, moveTo: d => {location=d;moves++;}};
-  const context = {DriveApp: {getFolderById: id => id==='source' ? parent : dest, getFileById: () => image}, Date, ContentService: {}, console};
+  const context = {PropertiesService: {getScriptProperties: () => ({getProperty: () => 'test-plan'})}, DriveApp: {getFolderById: id => id==='source' ? parent : dest, getFileById: () => image}, Date, ContentService: {}, console};
   vm.createContext(context);vm.runInContext(fs.readFileSync(__dirname+'/../rename_api.gs','utf8'),context);
   const op = {id:'photo',parent:'source',destination:'dest',day:'2026_09_17',name:'123_BLACK_0.jpg',new_name:'SS-25_BRAND_123_BLACK_0.jpg'};
   return {context,op,counts:()=>({renames,moves})};
