@@ -93,6 +93,25 @@ function renameRestResult_(response) {
   return JSON.parse(response.getContentText());
 }
 function renameFilePath_(id) {return 'files/'+encodeURIComponent(id)+'?fields=id,name,parents,mimeType,trashed';}
+function renameFolderBoundary_(op){
+  let source=DriveApp.getFolderById(op.parent);
+  const destination=DriveApp.getFolderById(op.destination);
+  if(destination.getName()!=='Переименовано') throw new Error('Folder differs from approved plan');
+  for(let depth=0;depth<12;depth++){
+    const parents=source.getParents();let upper=null;
+    while(parents.hasNext()){
+      const parent=parents.next();
+      if(parent.getId()===RENAME_ROOT_ID){
+        if(source.getName()!==op.day||!renameDirectParent_(destination,source.getId())) throw new Error('Folder differs from approved plan');
+        return;
+      }
+      if(upper) throw new Error('Ambiguous folder ancestry');
+      upper=parent;
+    }
+    if(!upper) break; source=upper;
+  }
+  throw new Error('Folder differs from approved plan');
+}
 function renameFastValidate_(op,file,collisions) {
   if(op.name.includes('_ПРОВЕРИТЬ_БИРКУ') || /[\/\\]/.test(op.new_name)) throw new Error('Unsafe name');
   if(!/^image\//.test(file.mimeType) || file.trashed) throw new Error('Invalid image');
@@ -109,8 +128,7 @@ function renameFastBatch_(plan,planFile,limit) {
   for(const op of ops) {
     const key=op.parent+'|'+op.destination;
     if(validatedFolders[key]) continue;
-    const p=DriveApp.getFolderById(op.parent),d=DriveApp.getFolderById(op.destination);
-    if(!renameDirectParent_(p,RENAME_ROOT_ID) || p.getName()!==op.day || !renameDirectParent_(d,op.parent) || d.getName()!=='Переименовано') throw new Error('Folder differs from approved plan');
+    renameFolderBoundary_(op);
     validatedFolders[key]=true;
   }
   const requests=[];
