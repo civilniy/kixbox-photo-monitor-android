@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -45,3 +46,28 @@ def test_queue_reports_completion(monkeypatch):
     monkeypatch.setattr(api,'_stop',False)
     asyncio.run(api.run_queue())
     assert api._last['state'] == 'completed'
+
+def test_transient_google_html_is_retried(monkeypatch):
+    monkeypatch.setenv('GOOGLE_RENAME_SCRIPT_URL', 'https://example.test/exec')
+    monkeypatch.setenv('RENAME_API_TOKEN', 'test-secret')
+    calls=[]
+    def handler(request):
+        calls.append(request)
+        if len(calls)==1:return httpx.Response(200,text='<html>temporary error</html>')
+        return httpx.Response(200,json={'ok':True,'completed':25})
+    original=httpx.AsyncClient
+    monkeypatch.setattr(api.httpx,'AsyncClient',lambda **kwargs:original(transport=httpx.MockTransport(handler),**kwargs))
+    monkeypatch.setattr(api.asyncio,'sleep',AsyncMock())
+    assert asyncio.run(api.call_script('run'))['completed']==25
+    assert len(calls)==2
+
+def test_error_preserves_counts_and_is_visible(monkeypatch):
+    from fastapi import HTTPException
+    monkeypatch.setattr(api,'_last',{'completed':200,'total':1515})
+    monkeypatch.setattr(api,'_stop',False)
+    monkeypatch.setattr(api,'call_script',AsyncMock(side_effect=HTTPException(502,'Upstream failed')))
+    asyncio.run(api.run_queue())
+    assert api._last['completed']==200
+    monkeypatch.setattr(api,'_task',None)
+    monkeypatch.setattr(api,'call_script',AsyncMock(return_value={'ok':True,'completed':205,'total':1515}))
+    assert asyncio.run(api.status())['error']=='Upstream failed'
