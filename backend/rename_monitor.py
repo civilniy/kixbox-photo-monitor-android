@@ -7,7 +7,7 @@ import re
 logger = logging.getLogger(__name__)
 last_error_detail = None
 from fastapi import HTTPException
-from rename_api import call_script
+from rename_inventory import scan_inventory
 
 snapshot = None
 last_error = None
@@ -73,12 +73,20 @@ async def refresh_once():
     global snapshot, last_error, refreshing, last_error_detail
     refreshing = True
     try:
-        data = await call_script('monitor_scan')
-        if data.get('snapshot'):
-            snapshot = build_snapshot(data['snapshot'], data.get('work'))
+        import rename_api
+        work = dict(rename_api._work_cache or (snapshot or {}).get('work') or {'phase': 'paused'})
+        raw = await asyncio.to_thread(scan_inventory, work)
+        current_work = dict(rename_api._work_cache or work)
+        history = list((snapshot or {}).get('_history', []))
+        history.append({'at': raw['generated_at'], 'renamed': sum(f['renamed'] for f in raw['folders'])})
+        history = [p for p in history if (datetime.now(timezone.utc)-parse_date(p['at'])).total_seconds() <= 7*86400][-2016:]
+        raw['history'] = history
+        updated = build_snapshot(raw, current_work)
+        updated['_history'] = history
+        snapshot = updated
         last_error = None
         last_error_detail = None
-        return bool(data.get('scanning'))
+        return False
     except Exception as error:
         detail = str(getattr(error, 'detail', type(error).__name__))
         detail = re.sub(r'https?://\\S+', '[url]', detail)[:500]
@@ -92,12 +100,13 @@ async def refresh_once():
 async def refresh_loop():
     while True:
         scanning = await refresh_once()
-        await asyncio.sleep(2 if scanning else 60)
+        await asyncio.sleep(300)
 
 def get_snapshot():
     if snapshot is None:
         raise HTTPException(503, last_error or 'Первичная инвентаризация фотографий выполняется')
     result = dict(snapshot)
+    result.pop('_history', None)
     age = (datetime.now(timezone.utc)-parse_date(result['generated_at'])).total_seconds()
     result['data_status'] = 'stale' if last_error or age > 900 else result['data_status']
     import rename_api
