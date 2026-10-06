@@ -3,6 +3,7 @@ import asyncio
 import os
 import secrets
 import json
+import re
 
 import httpx
 from fastapi import APIRouter, Body, Depends, Header, HTTPException
@@ -12,6 +13,7 @@ _task = None
 _last = {"state": "idle"}
 _stop = False
 _work_cache = {}
+_queue_progress = {}
 _start_lock = asyncio.Lock()
 
 
@@ -141,6 +143,12 @@ async def registry():
 async def update_work(work: dict = Body(...)):
     """Record analysis phase/heartbeat without starting the rename queue."""
     global _work_cache
+    global _queue_progress
+    match = re.search(r"Проверка очереди: (\d+) из (\d+) фото", work.get("message", ""))
+    if match:
+        renamed = re.search(r"Переименовано: (\d+)", work["message"])
+        review = re.search(r"на разбор: (\d+)", work["message"])
+        _queue_progress = {"checked": int(match[1]), "total": int(match[2]), "renamed": int(renamed[1]) if renamed else 0, "review": int(review[1]) if review else 0, "phase": work.get("phase"), "updated_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}
     result = await call_script("monitor_work", work)
     _work_cache = dict(result["work"])
     import rename_monitor
