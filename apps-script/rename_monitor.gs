@@ -12,11 +12,16 @@ function rmWrite_(key, value) {
   for(let i=n;i<old;i++)p.deleteProperty(key+'_'+i);
 }
 function rmList_(id, page) {
-  const q="'"+id+"' in parents and trashed=false";
-  const path='files?q='+encodeURIComponent(q)+'&pageSize=1000&fields='+encodeURIComponent('nextPageToken,incompleteSearch,files(id,name,mimeType)')+(page?'&pageToken='+encodeURIComponent(page):'');
-  const r=renameRestResult_(UrlFetchApp.fetchAll([renameRestRequest_(path)])[0]);
-  if(r.incompleteSearch)throw new Error('Incomplete Drive listing');
-  return r;
+  const folder=DriveApp.getFolderById(id), state=page?JSON.parse(page):{stage:'folders',token:null}, files=[];
+  if(state.stage==='folders') {
+    const it=state.token?DriveApp.continueFolderIterator(state.token):folder.getFolders();
+    while(it.hasNext()&&files.length<1000) {const f=it.next();if(!f.isTrashed())files.push({id:f.getId(),name:f.getName(),mimeType:'application/vnd.google-apps.folder'});}
+    if(it.hasNext())return {files:files,nextPageToken:JSON.stringify({stage:'folders',token:it.getContinuationToken()})};
+    state.stage='files';state.token=null;
+  }
+  const it=state.token?DriveApp.continueFileIterator(state.token):folder.getFiles();
+  while(it.hasNext()&&files.length<1000) {const f=it.next();if(!f.isTrashed())files.push({id:f.getId(),name:f.getName(),mimeType:f.getMimeType()});}
+  return {files:files,nextPageToken:it.hasNext()?JSON.stringify({stage:'files',token:it.getContinuationToken()}):null};
 }
 function rmWork_(input) {
   if(!input || !['paused','reviewing','matching','renaming','verifying','idle','error'].includes(input.phase))throw new Error('Invalid work phase');
@@ -36,8 +41,9 @@ function rmWork_(input) {
 function rmScan_() {
   const now=Date.now(),old=rmRead_('RM_SNAPSHOT',null),work=rmRead_('RM_WORK',{phase:'paused'});
   let scan=rmRead_('RM_SCAN',null);
+  if(scan&&!scan.native_iterator)scan=null;
   if(!scan&&old&&now-Date.parse(old.generated_at)<300000)return {ok:true,snapshot:old,work:work,scanning:false};
-  if(!scan)scan={started_at:new Date().toISOString(),pending:[{id:RENAME_ROOT_ID,top:null,renamed:false}],folders:{},visited:{},excluded_files:0,visited_folders:0};
+  if(!scan)scan={native_iterator:true,started_at:new Date().toISOString(),pending:[{id:RENAME_ROOT_ID,top:null,renamed:false}],folders:{},visited:{},excluded_files:0,visited_folders:0};
   // A checkpoint after each page permits bounded, resumable scans.
   while(scan.pending.length&&Date.now()-now<4000) {
     const item=scan.pending[0],data=rmList_(item.id,item.page);
