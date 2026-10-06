@@ -1,6 +1,11 @@
 """Cached, authenticated read-only progress for all folders in the ready root."""
 from datetime import datetime, timezone, timedelta
 import asyncio
+import logging
+import re
+
+logger = logging.getLogger(__name__)
+last_error_detail = None
 from fastapi import HTTPException
 from rename_api import call_script
 
@@ -65,15 +70,20 @@ def build_snapshot(raw, work=None, now=None):
         'excluded_files':raw.get('excluded_files',0), 'root_id':raw.get('root_id')}
 
 async def refresh_once():
-    global snapshot, last_error, refreshing
+    global snapshot, last_error, refreshing, last_error_detail
     refreshing = True
     try:
         data = await call_script('monitor_scan')
         if data.get('snapshot'):
             snapshot = build_snapshot(data['snapshot'], data.get('work'))
         last_error = None
+        last_error_detail = None
         return bool(data.get('scanning'))
-    except Exception:
+    except Exception as error:
+        detail = str(getattr(error, 'detail', type(error).__name__))
+        detail = re.sub(r'https?://\\S+', '[url]', detail)[:500]
+        last_error_detail = detail
+        logger.warning('Rename inventory refresh failed: %s: %s', type(error).__name__, detail)
         last_error = 'Не удалось обновить статистику Drive. Показаны последние полученные данные.'
         return False
     finally:
@@ -104,5 +114,6 @@ def get_snapshot():
             result['work'] = dict(result['work'], phase='awaiting_update')
             result['estimated_completion_at'] = None
     result['refresh_error'] = last_error
+    result['refresh_error_detail'] = last_error_detail
     result['refreshing'] = refreshing
     return result
