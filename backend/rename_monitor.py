@@ -96,7 +96,7 @@ async def refresh_once():
 async def refresh_loop():
     while True:
         scanning = await refresh_once()
-        await asyncio.sleep(5 if consecutive_failures else 2 if scanning else 60)
+        await asyncio.sleep(5 if consecutive_failures else 15 if scanning else 60)
 
 def get_snapshot():
     if snapshot is None:
