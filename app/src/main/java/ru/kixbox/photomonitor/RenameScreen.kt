@@ -49,11 +49,11 @@ private fun phaseLabel(v:String)=when(v){
     "paused"->"На паузе";"reviewing"->"Разбор бирок";"matching"->"Сверка с ассортиментом";"renaming"->"Переименование";"verifying"->"Проверка результата";"error"->"Требуется внимание";"awaiting_update"->"Ждём обновления статуса";else->"Нет активной работы"
 }
 data class RenameFolder(val id:String,val name:String,val total:Int,val renamed:Int,val remaining:Int,val review:Int,val percent:Double,val state:String)
-data class RenameData(val at:String,val status:String,val total:Int,val renamed:Int,val remaining:Int,val review:Int,val percent:Double,val complete:Int,val folders:List<RenameFolder>,val phase:String,val folder:String,val message:String,val workAt:String,val hours:Double?,val eta:String?,val forecast:String,val error:String?)
+data class RenameData(val at:String,val status:String,val total:Int,val renamed:Int,val remaining:Int,val review:Int,val percent:Double,val complete:Int,val folders:List<RenameFolder>,val phase:String,val folder:String,val message:String,val workAt:String,val hours:Double?,val eta:String?,val forecast:String,val error:String?,val queue:JSONObject?=null)
 private fun renameData(raw:String):RenameData {
     val j=JSONObject(raw);val a=j.getJSONArray("folders");val w=j.optJSONObject("work")?:JSONObject()
     val rows=(0 until a.length()).map { i-> val r=a.getJSONObject(i);RenameFolder(r.getString("id"),r.getString("name"),r.getInt("total"),r.getInt("renamed"),r.getInt("remaining"),r.optInt("review"),r.optDouble("progress_percent"),r.optString("state")) }
-    return RenameData(j.getString("generated_at"),j.optString("data_status"),j.getInt("total"),j.getInt("renamed"),j.getInt("remaining"),j.optInt("review"),j.getDouble("progress_percent"),j.optInt("folders_complete"),rows,w.optString("phase","paused"),w.optString("folder_name").takeUnless{it=="null"}?:"",w.optString("message"),w.optString("updated_at"),if(j.isNull("estimated_hours_remaining"))null else j.optDouble("estimated_hours_remaining"),j.optString("estimated_completion_at").takeUnless{it=="null"||it.isBlank()},j.optString("forecast_note"),j.optString("refresh_error").takeUnless{it=="null"||it.isBlank()})
+    return RenameData(j.getString("generated_at"),j.optString("data_status"),j.getInt("total"),j.getInt("renamed"),j.getInt("remaining"),j.optInt("review"),j.getDouble("progress_percent"),j.optInt("folders_complete"),rows,w.optString("phase","paused"),w.optString("folder_name").takeUnless{it=="null"}?:"",w.optString("message"),w.optString("updated_at"),if(j.isNull("estimated_hours_remaining"))null else j.optDouble("estimated_hours_remaining"),j.optString("estimated_completion_at").takeUnless{it=="null"||it.isBlank()},j.optString("forecast_note"),j.optString("refresh_error").takeUnless{it=="null"||it.isBlank()},j.optJSONObject("queue_progress"))
 }
 class RenameViewModel(application:Application):AndroidViewModel(application){
     private val prefs=application.getSharedPreferences("rename_monitor",Context.MODE_PRIVATE)
@@ -100,6 +100,7 @@ fun RenameScreen(endpoint:String,token:String,refreshTick:Int,modifier:Modifier=
     LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
         item{Text("Данные на ${rt(d.at)}"+if(vm.loading)" · обновляем" else "",fontSize=11.sp,color=RMuted)}
         if(vm.error!=null||d.error!=null||d.status!="live")item{Surface(color=Color(0xFFFFF2D9),shape=RoundedCornerShape(14.dp)){Text(vm.error?:d.error?:"Данные устарели — показан последний сохранённый результат",Modifier.padding(14.dp),fontSize=12.sp,color=RInk)}}
+        d.queue?.takeIf{it.optInt("total")>0}?.let{q->item{QueueProgress(q)}}
         item{RenameHero(d)}
         item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){RenameMetric("Переименовано",rn(d.renamed),"фотографий",Modifier.weight(1f),RDarkGreen);RenameMetric("Осталось",rn(d.remaining),"фотографий",Modifier.weight(1f),RInk)}}
         item{Surface(color=Color.White,shape=RoundedCornerShape(18.dp)){Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
@@ -160,3 +161,17 @@ private fun RenameFolderCard(f:RenameFolder){Surface(color=Color.White,shape=Rou
     LinearProgressIndicator(progress={(f.percent/100).toFloat().coerceIn(0f,1f)},modifier=Modifier.fillMaxWidth().height(6.dp),color=RGreen,trackColor=RTrack,strokeCap=StrokeCap.Round)
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("${rn(f.renamed)} из ${rn(f.total)} переименовано",fontSize=12.sp,color=RMuted);if(f.review>0)Text("${f.review} проверить",fontSize=12.sp,color=RDarkGreen)}
 }}}
+
+@Composable
+private fun QueueProgress(q:JSONObject){
+    val total=q.optInt("total").coerceAtLeast(1)
+    val checked=q.optInt("checked").coerceIn(0,total)
+    val progress=checked.toFloat()/total
+    Surface(color=RInk,shape=RoundedCornerShape(18.dp)){Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+        Text("Текущая очередь · проверка бирок",color=Color.White,fontWeight=FontWeight.Bold)
+        Text("$checked из $total фото · ${rp(progress.toDouble()*100)}",color=RGreen,fontSize=24.sp,fontWeight=FontWeight.Bold)
+        LinearProgressIndicator(progress={progress},modifier=Modifier.fillMaxWidth().height(10.dp),color=RGreen,trackColor=Color.White.copy(alpha=.15f),strokeCap=StrokeCap.Round)
+        Text("Переименовано: ${q.optInt("renamed")} · На разбор: ${q.optInt("review")} · Осталось проверить: ${total-checked}",color=Color.White,fontSize=12.sp)
+        Text("${phaseLabel(q.optString("phase"))} · ${rt(q.optString("updated_at"))}",color=Color.White.copy(alpha=.7f),fontSize=11.sp)
+    }}
+}
