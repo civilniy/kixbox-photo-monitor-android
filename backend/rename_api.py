@@ -11,6 +11,7 @@ router = APIRouter(prefix="/api/v1/rename", tags=["Photo renaming"])
 _task = None
 _last = {"state": "idle"}
 _stop = False
+_work_cache = {}
 _start_lock = asyncio.Lock()
 
 
@@ -139,7 +140,9 @@ async def registry():
 @router.post("/work", dependencies=[Depends(authorize_rename)])
 async def update_work(work: dict = Body(...)):
     """Record analysis phase/heartbeat without starting the rename queue."""
+    global _work_cache
     result = await call_script("monitor_work", work)
+    _work_cache = dict(result["work"])
     import rename_monitor
     if rename_monitor.snapshot:
         rename_monitor.snapshot = dict(rename_monitor.snapshot, work=result["work"])
