@@ -122,5 +122,6 @@ def get_snapshot():
     result['refresh_error_detail'] = last_error_detail if show_error else None
     result['refresh_retrying'] = bool(consecutive_failures)
     result['refresh_failures'] = consecutive_failures
+    result['queue_progress'] = rename_api._queue_progress
     result['refreshing'] = refreshing
     return result
