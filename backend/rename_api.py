@@ -34,6 +34,8 @@ async def call_script(action: str, payload: dict | None = None):
         attempts = max(1, min(5, int(os.environ.get("RENAME_HTTP_RETRIES", "3"))))
     except ValueError:
         attempts = 3
+    if action in {"status", "registry", "monitor_work"}:
+        attempts = max(attempts, 5)
     async with httpx.AsyncClient(timeout=220, follow_redirects=True) as client:
         for attempt in range(attempts):
             try:
@@ -53,7 +55,7 @@ async def call_script(action: str, payload: dict | None = None):
                 pass
             if attempt + 1 < attempts:
                 # The persisted plan makes retries safe after a partial batch.
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(3 * 2 ** attempt)
     raise HTTPException(502, "Google rename script did not return valid data after retries")
 
 
