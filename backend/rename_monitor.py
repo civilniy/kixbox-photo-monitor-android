@@ -12,6 +12,7 @@ from rename_api import call_script
 snapshot = None
 last_error = None
 refreshing = False
+consecutive_failures = 0
 
 def parse_date(value):
     return datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -70,13 +71,14 @@ def build_snapshot(raw, work=None, now=None):
         'excluded_files':raw.get('excluded_files',0), 'root_id':raw.get('root_id')}
 
 async def refresh_once():
-    global snapshot, last_error, refreshing, last_error_detail
+    global snapshot, last_error, refreshing, last_error_detail, consecutive_failures
     refreshing = True
     try:
         data = await call_script('monitor_scan')
         if data.get('snapshot'):
             import rename_api
             snapshot = build_snapshot(data['snapshot'], rename_api._work_cache or data.get('work'))
+        consecutive_failures = 0
         last_error = None
         last_error_detail = None
         return bool(data.get('scanning'))
@@ -85,6 +87,7 @@ async def refresh_once():
         detail = re.sub(r'https?://\\S+', '[url]', detail)[:500]
         last_error_detail = detail
         logger.warning('Rename inventory refresh failed: %s: %s', type(error).__name__, detail)
+        consecutive_failures += 1
         last_error = 'Не удалось обновить статистику Drive. Показаны последние полученные данные.'
         return False
     finally:
@@ -93,14 +96,15 @@ async def refresh_once():
 async def refresh_loop():
     while True:
         scanning = await refresh_once()
-        await asyncio.sleep(2 if scanning else 60)
+        await asyncio.sleep(5 if consecutive_failures else 2 if scanning else 60)
 
 def get_snapshot():
     if snapshot is None:
         raise HTTPException(503, last_error or 'Первичная инвентаризация фотографий выполняется')
     result = dict(snapshot)
     age = (datetime.now(timezone.utc)-parse_date(result['generated_at'])).total_seconds()
-    result['data_status'] = 'stale' if last_error or age > 900 else result['data_status']
+    show_error = bool(last_error) and (consecutive_failures >= 3 or age > 900)
+    result['data_status'] = 'stale' if show_error or age > 900 else 'live'
     import rename_api
     if rename_api._task is not None and not rename_api._task.done():
         current = next((f for f in result['folders'] if f['name'] == rename_api._last.get('day')), None)
@@ -114,7 +118,9 @@ def get_snapshot():
         if not stamp or (datetime.now(timezone.utc)-parse_date(stamp)).total_seconds()>900:
             result['work'] = dict(result['work'], phase='awaiting_update')
             result['estimated_completion_at'] = None
-    result['refresh_error'] = last_error
-    result['refresh_error_detail'] = last_error_detail
+    result['refresh_error'] = last_error if show_error else None
+    result['refresh_error_detail'] = last_error_detail if show_error else None
+    result['refresh_retrying'] = bool(consecutive_failures)
+    result['refresh_failures'] = consecutive_failures
     result['refreshing'] = refreshing
     return result
