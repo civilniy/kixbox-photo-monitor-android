@@ -141,6 +141,40 @@ async def registry():
     return await call_script("registry")
 
 
+@router.post("/upload/plan", dependencies=[Depends(authorize_rename)])
+async def submit_upload_plan(plan: dict = Body(...)):
+    ops = plan.get("operations")
+    if not isinstance(ops, list) or not 1 <= len(ops) <= 1000:
+        raise HTTPException(422, "An upload plan needs 1 to 1000 operations")
+    if len(json.dumps(plan, ensure_ascii=False).encode("utf-8")) > 1_000_000:
+        raise HTTPException(413, "Upload plan is too large")
+    async with _start_lock:
+        if _task is not None and not _task.done():
+            raise HTTPException(409, "Rename queue is running")
+        return await call_script("upload_import", plan)
+
+
+@router.post("/upload/run", dependencies=[Depends(authorize_rename)])
+async def run_upload_batch(expected: dict = Body(...)):
+    request_id = expected.get("request_id")
+    if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", request_id):
+        raise HTTPException(422, "Upload request ID required")
+    async with _start_lock:
+        if _task is not None and not _task.done():
+            raise HTTPException(409, "Rename queue is running")
+        return await call_script("upload_run", {"request_id": request_id})
+
+
+@router.get("/upload/status", dependencies=[Depends(authorize_rename)])
+async def upload_status():
+    return await call_script("upload_status")
+
+
+@router.get("/upload/registry", dependencies=[Depends(authorize_rename)])
+async def upload_registry():
+    return await call_script("upload_registry")
+
+
 @router.post("/work", dependencies=[Depends(authorize_rename)])
 async def update_work(work: dict = Body(...)):
     """Record analysis phase/heartbeat without starting the rename queue."""

@@ -76,9 +76,10 @@ function doPost(e) {
   let b;try{b=JSON.parse(e.postData.contents);}catch(_){return renameJson_({ok:false,error:'Invalid JSON'});}
   const secret=PropertiesService.getScriptProperties().getProperty('RENAME_API_TOKEN');
   if(!secret||b.token!==secret)return renameJson_({ok:false,error:'Unauthorized'});
-  if(!['run','status','import_plan','registry','monitor_scan','monitor_work'].includes(b.action))return renameJson_({ok:false,error:'Unknown action'});
+  if(!['run','status','import_plan','registry','monitor_scan','monitor_work','upload_import','upload_run','upload_status','upload_registry'].includes(b.action))return renameJson_({ok:false,error:'Unknown action'});
   const lock=b.action.startsWith('monitor_')?LockService.getUserLock():LockService.getScriptLock();if(!lock.tryLock(1000))return renameJson_({ok:false,error:'Busy'});
   try {
+    if(b.action.startsWith('upload_'))return renameJson_(uploadDispatch_(b));
     if(b.action==='monitor_scan')return renameJson_(rmScan_());
     if(b.action==='monitor_work')return renameJson_(rmWork_(b.plan));
     if(b.action==='import_plan')return renameJson_(renameApiImport_(b.plan));
